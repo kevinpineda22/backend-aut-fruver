@@ -22,11 +22,21 @@ import { crearResolverAcceso } from "./src/auth/supabaseAuth.js";
 import { origenesPermitidos, originPermitido } from "./src/config/cors.js";
 import { pool, postgresConfigurado } from "./src/config/db.js";
 import { respuestaError } from "./src/http.js";
+import { crearSupabaseAdmin } from "./src/config/supabaseAdmin.js";
+import { rutasPedidoSede } from "./src/pedidoSede/rutas.js";
 import { rutasPedidos } from "./src/pedidos/rutas.js";
+import { rutasSedes } from "./src/sedes/rutas.js";
 import { crearClienteInventario } from "./src/siesa/inventario.js";
 
-/** Ruta de la pantalla en el front: quien la puede abrir, puede usar esta API. */
+/** Ruta del sistema en el front. Cada sección es una ruta hija con su permiso:
+    quien tiene asignada `/automatizacion-fruver` entra a todas; a un líder se le
+    asigna solo `/automatizacion-fruver/pedido-sede`. */
 export const RUTA_MODULO = "/automatizacion-fruver";
+export const RUTAS = {
+  compra: `${RUTA_MODULO}/pedidos`,
+  pedidoSede: `${RUTA_MODULO}/pedido-sede`,
+  sedes: `${RUTA_MODULO}/sedes`,
+};
 
 const allowedOrigins = origenesPermitidos(process.env.FRUVER_ALLOWED_ORIGINS);
 const modo = modoAuth(process.env.FRUVER_AUTH);
@@ -35,6 +45,10 @@ const resolverAcceso = crearResolverAcceso({
   anonKey: process.env.SUPABASE_ANON_KEY,
 });
 const inventario = crearClienteInventario();
+const supabase = crearSupabaseAdmin({
+  url: process.env.SUPABASE_URL,
+  serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+});
 
 console.log(`[auth] FRUVER_AUTH=${modo}`);
 
@@ -59,6 +73,7 @@ app.get("/", (_request, response) => {
     configuracion: {
       postgres: postgresConfigurado,
       siesa: inventario.configurado,
+      pedidos: supabase.configurado,
       cors: allowedOrigins.length > 0,
     },
   });
@@ -80,10 +95,25 @@ app.use("/api/fruver", (_request, response, next) => {
   next();
 });
 
+// Compra consolidada (compras).
 app.use(
   "/api/fruver/pedidos",
-  requiereModulo(RUTA_MODULO, { modo, resolverAcceso }),
-  rutasPedidos({ pool, inventario }),
+  requiereModulo(RUTAS.compra, { modo, resolverAcceso }),
+  rutasPedidos({ pool, inventario, supabase }),
+);
+
+// Pedido de la sede (el líder, con el QR de su sede).
+app.use(
+  "/api/fruver/sede",
+  requiereModulo(RUTAS.pedidoSede, { modo, resolverAcceso }),
+  rutasPedidoSede({ pool, inventario, supabase }),
+);
+
+// Sedes y sus QR (administración).
+app.use(
+  "/api/fruver/sedes",
+  requiereModulo(RUTAS.sedes, { modo, resolverAcceso }),
+  rutasSedes({ supabase }),
 );
 
 app.use((_request, response) => {

@@ -2,15 +2,34 @@
 
 Backend de **Automatización Fruver**, un sistema propio de la intranet de Merkahorro (front: `Pagina-web_React/src/pages/AutomatizacionFruver/`, ruta `/automatizacion-fruver`). No es parte de la Analítica.
 
-Express en Vercel, mismo patrón que `backend_analitica`. **Solo lee**: la réplica de SIESA en Postgres y el inventario en vivo de SIESA. No escribe en ninguno.
+Express en Vercel, mismo patrón que `backend_analitica`.
+- **Lee** la réplica de SIESA en Postgres y el inventario en vivo de SIESA (nunca escribe ahí).
+- **Lee y escribe** los pedidos de sede en el Supabase de la intranet (tablas `fruver_*`, con la service role).
 
-## Módulos
+## Secciones
 
-| Sección | Carpeta | API |
-|---|---|---|
-| Pedidos | `src/pedidos/` | `GET /api/fruver/pedidos/sugerido?entrega=YYYY-MM-DD&dias=1` |
+Cada sección tiene su permiso (ruta del front). Quien tiene `/automatizacion-fruver` entra a todas; a un líder de sede se le asigna solo `/automatizacion-fruver/pedido-sede`.
 
-Para sumar una sección: su carpeta en `src/` con su `rutas.js`, y su `app.use("/api/fruver/<seccion>", requiereModulo(RUTA_MODULO, ...), ...)` en `app.js`. En el front: su carpeta en `src/pages/AutomatizacionFruver/`, una entrada en `secciones.js` y su ruta hija en `RouterApp.jsx`.
+| Sección | Permiso | Carpeta | API |
+|---|---|---|---|
+| Compra (consolidada) | `/automatizacion-fruver/pedidos` | `src/pedidos/` | `GET /api/fruver/pedidos/sugerido?entrega&dias` |
+| Pedido de sede (líder) | `/automatizacion-fruver/pedido-sede` | `src/pedidoSede/` | `POST /api/fruver/sede/verificar` · `POST /api/fruver/sede/pedido` · `PUT /api/fruver/sede/pedido/:id/lineas/:item` · `POST /api/fruver/sede/pedido/:id/enviar` |
+| Sedes y QR | `/automatizacion-fruver/sedes` | `src/sedes/` | `GET /api/fruver/sedes` · `POST /api/fruver/sedes/:bodega/token` |
+
+Para sumar una sección: su carpeta en `src/` con su `rutas.js`, su permiso en `RUTAS` y su `app.use(...)` en `app.js`. En el front: su carpeta en `src/pages/AutomatizacionFruver/`, una entrada en `secciones.js`, su ruta hija en `RouterApp.jsx` y su entrada en `data/masterRoutes.js`.
+
+## Pedido de sede: cómo funciona
+
+1. Cada sede tiene un adhesivo con un QR (sección "Sedes y QR"). El QR lleva la dirección `…/automatizacion-fruver/pedido-sede?qr=<código>`: escaneado con la cámara del celular abre la página; también se puede escanear desde ella.
+2. El líder (logueado) abre el pedido de su sede para una fecha de entrega. La primera vez se calcula el sugerido y queda **fijo**: cada renglón arranca con `cantidad = sugerido`.
+3. El líder cambia lo que no le parezca (con un motivo opcional). Cada cambio se guarda en el momento.
+4. Al enviar, el pedido queda cerrado. La sección Compra usa lo que pidió cada líder que ya envió y el sugerido para el resto.
+
+**Seguridad**: cada escritura vuelve a pedir el QR y verifica que el pedido sea de ESA sede. Sin usuario identificado no se escribe nada, en ningún modo de `FRUVER_AUTH`.
+
+**Trazabilidad** (`sql/001_pedidos_sede.sql`): cada renglón guarda el sugerido, lo pedido, si es `sugerido` o `manual`, el motivo, quién y cuándo, y los datos con que se calculó el sugerido (venta esperada, inventario, merma, precio). `fruver_pedido_eventos` registra abrir, cada cambio de cantidad (antes → después) y enviar. Los cambios pasan por funciones de la base, que escriben el cambio y su evento en la misma transacción.
+
+**Instalar**: correr `sql/001_pedidos_sede.sql` una vez en el SQL Editor del Supabase de la intranet (es idempotente). Probado en una transacción con ROLLBACK: abrir, no duplicar, cambiar, volver al sugerido, rechazar cantidad negativa, rechazar cambios después de enviar, eventos y RLS.
 
 ## Pedidos: cómo se calcula el sugerido
 
@@ -45,7 +64,9 @@ Reglas puras en `src/pedidos/reglas.js` y `sugerido.js` (probadas en `test/pedid
 
 Ver `.env.example`. Postgres y Supabase: los mismos de `backend_analitica`. SIESA: los mismos de `backend-traslado`.
 
-`FRUVER_AUTH`: `off` | `report` | `enforce` (vacío = `report`). Pasa quien tiene asignada la ruta `/automatizacion-fruver` (personal o por rol), igual que en el front. El admin NO tiene pase directo: también hay que asignársela.
+`SUPABASE_SERVICE_ROLE_KEY`: la service role del mismo proyecto de Supabase. Sin ella, Compra funciona con el sugerido solo y Pedido de sede / Sedes y QR responden 503.
+
+`FRUVER_AUTH`: `off` | `report` | `enforce` (vacío = `report`). Pasa quien tiene asignada la ruta de la sección (o `/automatizacion-fruver` entera), personal o por rol, igual que en el front. El admin NO tiene pase directo: también hay que asignársela.
 
 ## Correr
 
@@ -55,7 +76,7 @@ npm test
 npm run dev     # http://127.0.0.1:3020/api
 ```
 
-El front en desarrollo llega por el proxy `/api-fruver` de Vite (por defecto a `127.0.0.1:3020`). En producción usa `VITE_FRUVER_API_URL` (o `https://automatizacion-fruver.vercel.app/api` si no está).
+El front en desarrollo llega por el proxy `/api-fruver` de Vite (por defecto a `127.0.0.1:3020`). En producción usa `VITE_FRUVER_API_URL` (o `https://backend-aut-fruver.vercel.app/api` si no está).
 
 ## Tiempos medidos (2026-11-05)
 
