@@ -6,6 +6,8 @@ Express en Vercel, mismo patrón que `backend_analitica`.
 - **Lee** la réplica de SIESA en Postgres y el inventario en vivo de SIESA (nunca escribe ahí).
 - **Lee y escribe** los pedidos de sede en el Supabase de la intranet (tablas `fruver_*`, con la service role).
 
+> Qué se pidió, qué se entregó y qué falta: [docs/AUTOMATIZACION_FRUVER.md](docs/AUTOMATIZACION_FRUVER.md).
+
 ## Secciones
 
 Cada sección tiene su permiso (ruta del front). Quien tiene `/automatizacion-fruver` entra a todas; a un líder de sede se le asigna solo `/automatizacion-fruver/pedido-sede`.
