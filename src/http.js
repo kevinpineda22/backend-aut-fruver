@@ -17,13 +17,9 @@ export class ErrorPublico extends Error {
   }
 }
 
-/** Lo que ve el usuario cuando una función fruver_* de la base rechaza el cambio. */
+/** Lo que ve el usuario cuando la base rechaza la escritura (ErrorBase.codigo). */
 const MENSAJES_BASE = {
-  PEDIDO_ENVIADO: { status: 409, error: "El pedido ya fue enviado: no se puede cambiar." },
-  PEDIDO_NO_EXISTE: { status: 404, error: "El pedido no existe." },
-  PRODUCTO_NO_EXISTE: { status: 404, error: "Ese producto no está en el pedido de la sede." },
-  CANTIDAD_INVALIDA: { status: 400, error: "La cantidad no es válida." },
-  SEDE_NO_EXISTE: { status: 404, error: "La sede no existe." },
+  PEDIDO_YA_ENVIADO: { status: 409, error: "Esta sede ya envió su pedido para esa fecha de entrega." },
   NO_CONFIGURADO: { status: 503, error: "El servidor no tiene configurada la base de pedidos." },
 };
 

@@ -1,8 +1,8 @@
 # Automatización Fruver — qué se pidió, qué se construyó y qué falta
 
-Sistema para que cada sede pida su fruver con una **cantidad sugerida** por el sistema, el líder la ajuste si no está de acuerdo, y compras vea la **compra consolidada**. Todo queda registrado para medir después si el sugerido mejora el resultado.
+Cada sede revisa **cuánto pedir de cada producto de fruver** (el sugerido, con su inventario y la cuenta que lleva a ese número), lo ajusta y **envía su pedido**. Compras recibe los pedidos en **Compra**, y **Seguimiento** muestra si las sedes siguieron el sugerido o lo cambiaron.
 
-**Estado al 2026-11-05:** backend en producción y verificado; front subido a la rama `Johan` (falta el build y deploy a merkahorro.com).
+**Estado al 2026-11-06:** construido y probado en local. Falta correr el SQL en Supabase, subir backend y front, y asignar permisos (§6).
 
 ---
 
@@ -10,52 +10,65 @@ Sistema para que cada sede pida su fruver con una **cantidad sugerida** por el s
 
 | # | Lo que se pidió | Estado | Cómo quedó |
 |---|---|---|---|
-| 1 | Un sugerido de compra para fruver | ✅ Hecho | Sugerido por sede y producto, con venta esperada, merma real e inventario en vivo de SIESA (§3). |
-| 2 | Un módulo nuevo llamado "Automatización Fruver", con "Pedidos" como primera sección | ✅ Hecho | Sistema con tres secciones: Pedido de sede, Compra, Sedes y QR (§2). |
-| 3 | Que **no** sea un módulo de Power BI: sistema aparte, ruta nueva | ✅ Hecho | Ruta propia `/automatizacion-fruver`, con su menú. No aparece en la Analítica. |
-| 4 | Usar el mismo frontend del panel de Power BI | ✅ Hecho | Mismo armazón (riel morado, hoja blanca) y mismas piezas visuales (métricas, paneles, tablas). |
-| 5 | Backend aparte | ✅ Hecho | Repo `kevinpineda22/backend-aut-fruver`, desplegado en `https://backend-aut-fruver.vercel.app`. |
-| 6 | Sugeridos de compra **de cada sede**, con cantidades, teniendo en cuenta lo que cada tienda ya tiene acumulado (inventario) | ✅ Hecho | Cada sede tiene su sugerido, que descuenta su inventario y lo que va a vender antes de recibir. |
-| 7 | QR por sede: el líder lo escanea y se le abre su sede con sus productos | ✅ Hecho | Adhesivo por sede; con la cámara del celular abre el pedido de esa sede (§2.1). |
-| 8 | El sistema sugiere; si el líder no está de acuerdo, digita a mano | ✅ Hecho | La cantidad viene precargada con el sugerido; el líder la cambia y puede dar un motivo. |
-| 9 | Trazabilidad | ✅ Hecho | Cada renglón guarda sugerido, lo pedido, quién, cuándo, motivo y los datos del cálculo; cada cambio queda como evento (§4). |
-| 10 | Analítica: si los sugeridos mejoran la venta con el tiempo, si el líder pide a mano o usa el sugerido | ⏳ Pendiente | **Los datos ya se guardan** para poder medirlo. Falta la pantalla, que necesita unas semanas de pedidos reales (§6). |
+| 1 | Un sugerido de compra para fruver | ✅ Hecho | Por sede y producto, con venta esperada, merma real e inventario en vivo de SIESA (§3). |
+| 2 | Un sistema nuevo, "Automatización Fruver", fuera de Power BI, con ruta propia | ✅ Hecho | Ruta `/automatizacion-fruver`. Tres secciones: Sugerido, Compra y Seguimiento (§2). |
+| 3 | Mismo frontend del panel de Power BI | ✅ Hecho | Mismo armazón (riel morado, hoja blanca) y mismas piezas visuales. |
+| 4 | Backend aparte | ✅ Hecho | Repo `kevinpineda22/backend-aut-fruver`, desplegado en `https://backend-aut-fruver.vercel.app`. |
+| 5 | Sencillo y fácil de leer: el inventario de cada sede y el sugerido | ✅ Hecho | Por producto: inventario hoy, venta esperada, sugerido y lo que se pide. El resto aparece al tocar el producto. |
+| 6 | Mostrar cómo se calcula el sugerido, en pantalla y en el código | ✅ Hecho | Recuadro "¿Cómo se calcula?", la cuenta de cada producto, `src/pedidos/reglas.js` y el `README.md` (§3). |
+| 7 | Quitar los QR por completo | ✅ Hecho | Sin adhesivos ni escáner. El líder elige su sede en una lista. |
+| 8 | El sugerido se puede cambiar; se nota con color que no es el inicial, y hay botón para volver al sugerido | ✅ Hecho | El renglón cambiado se pinta en **ámbar** y muestra "Volver al sugerido (X)". |
+| 9 | Botón de enviar al final de la lista; agrupa todo lo pedido | ✅ Hecho | Al final: resumen (productos, cambiados, quitados, agregados) y **Enviar pedido**, con confirmación. |
+| 10 | Quitar un producto del pedido, de forma muy clara; agregar los que el sistema no sugirió | ✅ Hecho | "Quitar del pedido" (queda gris y tachado, con "Volver a pedir"). "Agregar" en los no sugeridos (azul), y "¿Falta un producto?" para los que la sede no vende. |
+| 11 | Lo enviado se guarda en el módulo Compra | ✅ Hecho | Compra suma lo que pidió cada sede que envió y descuenta el acopio. Muestra qué sedes enviaron y cuáles no. |
+| 12 | Seguimiento: si el líder pidió lo sugerido, si cambió, cuánto, si quitó o agregó | ✅ Hecho | Sección **Seguimiento**: por sede y por pedido, con el detalle de cada producto (§2.3). |
+| 13 | Usar después los QR que ya tienen las tiendas | ⏳ Pendiente | Falta saber qué lleva ese QR (§6). |
 
 ---
 
 ## 2. Funcionalidades
 
-Ruta: `https://merkahorro.com/automatizacion-fruver`. Cada sección tiene su propio permiso (§5).
+Ruta: `https://merkahorro.com/automatizacion-fruver`. Cada sección tiene su permiso (§5).
 
-### 2.1 Pedido de sede — el líder
+### 2.1 Sugerido — el líder de sede
 
-1. **Entra con el QR.** El líder escanea el adhesivo de su sede con la cámara del celular, o desde la página. El sistema verifica el código y muestra la sede.
-2. **Abre el pedido.** Elige la fecha de entrega (por defecto, mañana) y cuántos días cubre (1 a 4). La primera vez se calcula el sugerido; desde ese momento queda **fijo** para ese pedido.
-3. **Revisa y ajusta.** Cada producto muestra:
-   - el sugerido;
-   - la venta esperada y lo que hay hoy;
-   - el campo "Pedir", que arranca con el sugerido y acepta decimales con coma ("12,5").
+1. **Elige su sede** (el navegador la recuerda), cuándo llega el pedido y cuántos días cubre.
+2. **Revisa la lista.** Por producto: inventario hoy, venta esperada, sugerido y el campo **Pedir**, que arranca con el sugerido. Primero salen los que hay que pedir.
+3. **Ajusta.** Cada renglón cambia de aspecto según lo que hizo el líder:
 
-   Si cambia la cantidad, el renglón se marca **"Cambiado a mano"**: puede elegir un motivo (opcional) o volver al sugerido con un botón. Cada cambio se guarda en el momento.
-4. **Envía.** Una confirmación resume cuántos productos pide y cuántos cambió a mano. Enviado, el pedido queda cerrado.
+   | Lo que hizo | Cómo se ve | Para deshacer |
+   |---|---|---|
+   | Nada | Normal, va lo sugerido | — |
+   | Cambió la cantidad | **Ámbar** | "Volver al sugerido (X)" |
+   | Quitó el producto | **Gris y tachado**, "No se pide" | "Volver a pedir X" |
+   | Agregó uno no sugerido | **Azul**, "Agregado por usted" | "Quitar del pedido" |
+   | Agregó y no escribió cantidad | **Rojo**, "Escriba la cantidad" | Escribirla o quitarlo |
 
-Extras: buscar producto, ver "solo cambiados", y un resumen (productos a pedir, cambiados a mano, valor estimado). Si el líder vuelve a abrir el mismo pedido, lo encuentra como lo dejó, sin esperar un recálculo.
+   Para pedir un producto que la sede no vende: "¿Falta un producto?" al final de la lista.
+4. **Envía.** Al final: el resumen y **Enviar pedido**. Pide confirmar ("Después de enviarlo no se puede cambiar"). No deja enviar si falta una cantidad o si no hay nada para pedir.
+
+Extras: buscar, ver "Todos / En el pedido / Mis cambios", y la cuenta de cada producto al tocar su nombre. Lo que el líder cambia queda guardado en su navegador hasta que envía: si cierra la página, al volver lo encuentra igual.
+
+Ya enviado, la sección muestra el pedido en solo lectura: quién lo envió, a qué hora, y cada producto con su cambio.
 
 ### 2.2 Compra — compras
 
-- **Consolidado:** por producto, la venta esperada, el pedido de las tiendas, el inventario del acopio (PV009), cuánto **comprar** y el valor estimado.
-- **Pedido de tiendas** = lo que pidió cada líder que **ya envió** + el sugerido de las sedes que todavía no.
-- **Comprar** = pedido de tiendas − inventario del acopio.
-- **Estado por sede:** "Sin abrir", "En curso" o "Enviado" (con quién y a qué hora).
-- **Detalle por producto:** al tocarlo se ve cada sede, con "pidió el líder · sugerido X" cuando corresponde.
-- **Vista de una sede:** su tabla con venta esperada, inventario, lo que se vende antes de recibir, merma, sugerido y lo que pidió el líder.
-- **Descargar Excel** de la vista actual.
+- **Pedidos de las sedes:** cuáles enviaron (quién y a qué hora) y cuáles no.
+- **Consolidado:** por producto, la venta esperada, el **pedido de tiendas** (suma de lo que pidieron las sedes que enviaron), el inventario del acopio (PV009), cuánto **comprar** y el valor estimado. Las sedes que no enviaron no suman.
+- **Detalle por producto:** lo que pidió cada sede, si fue como se sugirió, cambiado o agregado, y el sugerido.
+- **Vista de una sede:** todas las columnas del cálculo más "Pidió la sede". **Descargar Excel** con sugerido y pedido por sede.
 
-### 2.3 Sedes y QR — administración
+### 2.3 Seguimiento
 
-- Un adhesivo por sede, listo para **imprimir** (solo salen los adhesivos).
-- **Cambiar código:** si un adhesivo se pierde o se copia, el viejo deja de funcionar en el acto. Hay que imprimir y pegar el nuevo.
-- Los adhesivos se imprimen **desde merkahorro.com**: el QR lleva la dirección del sitio desde donde se imprime.
+Filtros: rango de fechas de entrega y sede.
+
+- **Resumen:** porcentaje **igual al sugerido**, pedidos enviados, cambios (cambiados, quitados, agregados) y **diferencia en plata**.
+- **Por sede:** las mismas medidas, una fila por sede. Se ve qué líder sigue el sugerido y cuál lo cambia mucho.
+- **Pedidos:** uno por fila. Al tocarlo, cada producto con sugerido, lo pedido, la diferencia (en unidades y %) y el tipo de cambio. Los cambios salen primero, el de más plata arriba.
+
+Cómo se mide:
+- **Igual al sugerido** = de los productos que sugirió el sistema, cuántos se pidieron con la misma cantidad. Lo agregado no entra (no había sugerido que seguir).
+- **Diferencia en plata** = Σ (pedido − sugerido) × último precio de compra. Positiva: se pidió más que lo sugerido. Negativa: menos.
 
 ---
 
@@ -63,52 +76,52 @@ Extras: buscar producto, ver "solo cambiados", y un resumen (productos a pedir, 
 
 Fruver = grupo `40-LEGUMBRE` de SIESA. Para cada sede y cada producto:
 
-| Paso | Cálculo |
-|---|---|
-| Venta esperada de un día | Promedio de lo vendido el **mismo día de la semana** en las últimas 6 semanas en que la sede abrió, sin el día más alto ni el más bajo. El jueves de fruver vende ~2×: no se compara con un martes. |
-| Inventario al recibir | Disponible en SIESA ahora − lo que falta vender hoy (según cómo vende la sede hora por hora) − la venta de los días antes de la entrega. |
-| Merma | (comprado − vendido) ÷ comprado en los últimos 42 días, con tope de 25 %. |
-| Necesidad | Venta esperada de los días a cubrir ÷ (1 − merma). Para vender 100 kg con 10 % de merma hay que comprar 111 kg. |
-| Sugerido | Necesidad − inventario al recibir, nunca negativo. Redondeo de Traslados: sube desde ,2. |
+| Paso | Qué es | Cálculo |
+|---|---|---|
+| 1 | Inventario hoy | Disponible en SIESA en este momento. |
+| 2 | Se vende antes de recibir | Lo que falta vender hoy (según cómo vende la sede hora por hora) + la venta esperada de los días antes de la entrega. |
+| 3 | Quedan al recibir | Inventario hoy − se vende antes de recibir. Nunca menos de 0. |
+| 4 | Venta esperada | Promedio de lo vendido el **mismo día de la semana** en las últimas 6 semanas en que la sede abrió, sin el día más alto ni el más bajo. Se suma por cada día que cubre el pedido. |
+| 5 | Merma | (comprado − vendido) ÷ comprado en los últimos 42 días, con tope de 25 %. |
+| 6 | Hay que tener | Venta esperada ÷ (1 − merma). |
+| 7 | **Sugerido** | Hay que tener − quedan al recibir, nunca negativo. Se redondea hacia arriba desde 0,2. |
 
 Casos especiales:
 
-- **Se arma en tienda** (paquetes de verduras, bandejas): si se vende más de 1,5 veces lo que se compra con ese código, el producto tiene pedido por sede pero **no suma a la compra**.
-- **Inventario no leído:** el producto queda sin sugerido, nunca en 0. Si falla más del 20 % de los productos, el sistema avisa en vez de calcular, para no pedir de más en todas las sedes.
+- **Se arma en tienda** (paquetes, bandejas): si se vende más de 1,5 veces lo que se compra con ese código, tiene sugerido por sede pero **no suma a la compra**.
+- **Inventario no leído:** el producto sale "Sin dato", nunca en 0. Si falla más del 20 % de los productos, el sistema avisa en vez de calcular.
+
+Dónde vive: `src/pedidos/reglas.js` y `src/pedidos/sugerido.js` en el backend; `sugerido/sugeridoVista.js` en el front arma la cuenta que se muestra.
 
 ---
 
-## 4. Trazabilidad
+## 4. Lo que se guarda
 
-Tablas en el Supabase de la intranet (`sql/001_pedidos_sede.sql`):
+Tablas en el Supabase de la intranet (`sql/002_pedidos_enviados.sql`):
 
 | Tabla | Qué guarda |
 |---|---|
-| `fruver_sedes` | Cada sede y el código de su QR (y quién lo cambió por última vez). |
-| `fruver_pedidos` | El pedido de una sede para una fecha de entrega: estado, quién lo abrió, quién lo envió y cuándo, y con qué datos se calculó. |
-| `fruver_pedido_lineas` | Un renglón por producto: **sugerido**, **cantidad pedida**, origen (`sugerido` o `manual`), motivo, y los datos del cálculo (venta esperada, inventario, merma, precio). |
-| `fruver_pedido_eventos` | Cada acción: abrir, cada cambio de cantidad (antes → después, con motivo) y enviar, con usuario y hora. |
+| `fruver_envios` | Un pedido por sede y fecha de entrega: días que cubre, quién lo envió y cuándo, y con qué datos se calculó el sugerido. |
+| `fruver_envio_lineas` | Un renglón por producto: sugerido que vio el líder, cantidad pedida, **origen** (`sugerido`, `modificado`, `quitado`, `agregado`) y los datos del cálculo (inventario, venta esperada, merma, precio). |
 
-Garantías:
-
-- Los cambios pasan por **funciones de la base**, que escriben el cambio y su evento en la misma transacción. No hay forma de cambiar una cantidad sin dejar rastro.
-- El sugerido se guarda **con los datos con que se calculó**. Si mañana cambia la fórmula, los pedidos viejos se siguen evaluando con lo que el líder vio ese día.
+- Encabezado y renglones se guardan en **una transacción** (`fruver_registrar_envio`): nunca queda un pedido a medias.
+- Una sede envía **una vez** por fecha de entrega.
+- RLS sin políticas: solo el backend, con la clave secreta, lee y escribe.
 
 ---
 
-## 5. Permisos y seguridad
+## 5. Permisos
 
 | Permiso (asignado en Usuarios) | Qué abre |
 |---|---|
-| Automatización Fruver (todo) — `/automatizacion-fruver` | Las tres secciones. Para compras y administración. |
-| Pedido de sede (líder) — `/automatizacion-fruver/pedido-sede` | Solo el pedido. Para los líderes de sede. |
-| Compra consolidada — `/automatizacion-fruver/pedidos` | Solo la compra. |
-| Sedes y QR — `/automatizacion-fruver/sedes` | Solo los adhesivos. |
+| Automatización Fruver (todo) — `/automatizacion-fruver` | Las tres secciones. |
+| Sugerido por sede (líder) — `/automatizacion-fruver/sugerido` | Ver el sugerido y enviar el pedido. Para los líderes de sede. |
+| Compra consolidada — `/automatizacion-fruver/pedidos` | Compra. |
+| Seguimiento del sugerido — `/automatizacion-fruver/seguimiento` | Seguimiento. |
 
-- El **admin no tiene pase directo**: también hay que asignarle la ruta, igual que en el resto de la intranet fuera de la Analítica.
-- Cada escritura del líder **vuelve a pedir el QR** y verifica que el pedido sea de esa sede: no se puede tocar el pedido de otra.
-- **Sin usuario identificado no se escribe nada**, en ningún modo.
-- Las tablas tienen RLS sin políticas: solo el backend, con la clave secreta, puede leerlas y escribirlas.
+- El **admin no tiene pase directo**: también hay que asignarle la ruta.
+- Sin usuario identificado no se envía nada, en ningún modo.
+- Hoy un líder puede elegir cualquier sede. Cuando se adapten los QR de las tiendas, el QR puede fijar la sede.
 
 ---
 
@@ -116,18 +129,20 @@ Garantías:
 
 | Pendiente | Por qué importa |
 |---|---|
-| Build y deploy del front a merkahorro.com | Las pantallas están en la rama `Johan`, todavía no publicadas. |
-| Asignar permisos e imprimir los adhesivos | Sin eso nadie entra ni hay QR en las sedes. |
-| Pasar `FRUVER_AUTH` de `report` a `enforce` en Vercel | Hoy la compra responde sin sesión (modo de transición). Hacerlo cuando el front esté publicado y los usuarios entren bien. |
-| **Analítica del sugerido** (pedido #10) | Uso del sugerido por sede y líder, acierto del sugerido contra lo pedido a mano frente a la venta real del día de entrega, merma en el tiempo. Necesita unas semanas de pedidos. |
-| Hora de corte del pedido | A la 1 p. m. el acopio ya tenía la compra del día y casi todo salía "Comprar 0". Hay que acordar con compras a qué hora se arma el pedido. |
-| Villahermosa (`00201`) | Compra fruver por su cuenta y guarda mucho inventario. Hoy se trata como una sede más que se abastece del acopio: confirmar con compras. |
+| Correr `sql/002_pedidos_enviados.sql` en el Supabase de la intranet | Sin las tablas, enviar falla y Compra sale sin pedidos (con aviso). |
+| `SUPABASE_SERVICE_ROLE_KEY` en Vercel | La necesita el backend para guardar y leer los pedidos. |
+| Subir backend y front, y asignar permisos | Las pantallas están en la rama `Johan`. |
+| Pasar `FRUVER_AUTH` de `report` a `enforce` | Hoy el sugerido responde sin sesión (modo de transición). Enviar ya exige usuario. |
+| Adaptar a los QR que ya tienen las tiendas | Saber qué lleva ese QR para que abra la sede correcta (y la fije). |
 | Reabrir un pedido enviado | Hoy enviado = cerrado. Si un líder se equivoca, no hay forma de corregir. |
-| Recalcular el sugerido de un pedido en curso | Queda fijo desde que se abre; si se abre temprano, el inventario puede cambiar en el día. |
+| Hora de corte | Acordar con compras hasta qué hora pueden enviar las sedes. |
+| Villahermosa (`00201`) | Compra fruver por su cuenta: confirmar con compras si envía pedido. |
 | Festivos | Un festivo no se distingue de un día normal en el cálculo. |
-| Mensaje de "Sedes y QR" sin sesión | Dice "…para hacer el pedido de su sede"; corregir el texto. |
+| Seguimiento contra la venta real | Hoy compara lo pedido con lo sugerido. Falta comparar los dos con lo que se vendió el día de la entrega: ¿quién acertó más? |
 
-**Hallazgo aparte:** el módulo de Compras de la Analítica cuenta solo documentos `CEA`, y el ~29 % de la compra de fruver entra por `DSE` (documento soporte). Ese módulo sub-cuenta el fruver.
+**Limpieza opcional:** las tablas del pedido con QR de la primera versión (`fruver_sedes`, `fruver_pedidos`, …) ya no se usan. `sql/quitar_pedidos_sede.sql` las borra (revisar antes: borra datos). No toca las tablas nuevas.
+
+**Hallazgo aparte:** el módulo de Compras de la Analítica cuenta solo documentos `CEA`, y el ~29 % de la compra de fruver entra por `DSE`. Ese módulo sub-cuenta el fruver.
 
 ---
 
@@ -136,12 +151,8 @@ Garantías:
 | Pieza | Ubicación |
 |---|---|
 | Backend | `BACKEND/automatizacion-fruver` → GitHub `kevinpineda22/backend-aut-fruver` → Vercel `backend-aut-fruver` |
-| Front | `Pagina-web_React/src/pages/AutomatizacionFruver/` (rama `Johan`) |
-| Base de pedidos | Supabase de la intranet, tablas `fruver_*` |
+| Front | `Pagina-web_React/src/pages/AutomatizacionFruver/` (rama `Johan`): `sugerido/`, `pedidos/`, `seguimiento/` |
+| Pedidos enviados | Supabase de la intranet, `fruver_envios` y `fruver_envio_lineas` |
 | Ventas y compras | Réplica de SIESA en Postgres (`merkahorro_siesa`), solo lectura |
 | Inventario | SIESA en vivo, consulta estándar `API_v2_Inventarios_InvFecha` |
 | Detalle técnico | `README.md` de este repo |
-
-**Tiempos medidos en producción:** la compra tarda 5,4 s la primera vez y ~1,5 s después (el inventario se guarda 2 minutos).
-
-**Pruebas:** 75 tests en el backend y 81 en el front. El SQL se probó dentro de una transacción con ROLLBACK, y el flujo completo del líder en el navegador contra una base de prueba.

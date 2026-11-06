@@ -186,6 +186,7 @@ describe("armarSugerido", () => {
     assert.equal(tomate.merma, 0.217);
     // 00301: queda por vender hoy 50 de 100 → al recibir 30; necesita 90 / 0,783 = 114,9 → pide 85
     assert.equal(tomate.sedes["00301"].inventarioAlRecibir, 30);
+    assert.equal(tomate.sedes["00301"].necesidad, 114.9);
     assert.equal(tomate.sedes["00301"].sugerido, 85);
     // PV001 no tiene perfil horario → no descuenta venta de hoy: 45/0,783 = 57,5 − 10 → 48
     assert.equal(tomate.sedes.PV001.sugerido, 48);

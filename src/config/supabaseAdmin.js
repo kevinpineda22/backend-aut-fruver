@@ -1,16 +1,16 @@
 /* =============================================================================
    Supabase de la intranet, con la SERVICE ROLE (solo en el backend)
 
-   Las tablas fruver_* tienen RLS sin políticas: con la anon key no se ve nada.
-   Este cliente las lee y escribe por la API REST (PostgREST) y llama a las
-   funciones fruver_* (sql/001_pedidos_sede.sql), que hacen cada cambio junto con
-   su evento de trazabilidad.
+   Las tablas fruver_envios* tienen RLS sin políticas: con la anon key no se ve
+   nada. Este cliente las lee por la API REST (PostgREST) y escribe solo con la
+   función fruver_registrar_envio (sql/002_pedidos_enviados.sql), que guarda el
+   pedido y sus renglones en una transacción.
 
    La service role salta RLS: quién puede hacer qué lo decide ESTE backend
-   (FRUVER_AUTH + ruta asignada + QR de la sede). Nunca exponer esta clave.
+   (FRUVER_AUTH + ruta asignada + usuario identificado). Nunca exponer esta clave.
    ============================================================================= */
 
-/** Error de una función fruver_* (`raise exception 'PEDIDO_ENVIADO'`) con su código. */
+/** Error de una función fruver_* (`raise exception 'PEDIDO_YA_ENVIADO'`) con su código. */
 export class ErrorBase extends Error {
   constructor(codigo, mensaje, status) {
     super(mensaje || codigo);
@@ -19,7 +19,7 @@ export class ErrorBase extends Error {
   }
 }
 
-const CODIGOS = ["PEDIDO_NO_EXISTE", "PEDIDO_ENVIADO", "CANTIDAD_INVALIDA", "PRODUCTO_NO_EXISTE", "SEDE_NO_EXISTE"];
+const CODIGOS = ["PEDIDO_YA_ENVIADO"];
 
 /**
  * Cabeceras para la clave del backend. Sirven las dos formas de Supabase:

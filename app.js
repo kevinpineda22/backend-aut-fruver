@@ -4,12 +4,14 @@
    Vercel detecta este archivo como la app Express (exporta `default`). No crear
    `index.js`, `server.js` ni `app.js` dentro de `src/`.
 
-   Un módulo por carpeta en `src/` (hoy: `pedidos`). Para sumar uno nuevo:
-   su carpeta con `rutas.js`, y una línea `app.use("/api/fruver/<modulo>", ...)`
-   abajo, detrás del mismo `requiereModulo`.
+   Un módulo por carpeta en `src/` (hoy: `pedidos`, el cálculo del sugerido).
+   Cada sección del front tiene su permiso (RUTAS) y su ruta acá abajo, detrás
+   de `requiereModulo`.
 
    Lee la réplica de SIESA en Postgres (`merkahorro_siesa`, solo lectura) y el
-   inventario en vivo de SIESA (consulta estándar). No escribe en ninguno.
+   inventario en vivo de SIESA (consulta estándar). No escribe en ninguno: lo
+   único que escribe son los pedidos que envían las sedes, en el Supabase de la
+   intranet (tablas fruver_envios*, sql/002_pedidos_enviados.sql).
    ============================================================================= */
 
 import "dotenv/config";
@@ -23,19 +25,18 @@ import { origenesPermitidos, originPermitido } from "./src/config/cors.js";
 import { pool, postgresConfigurado } from "./src/config/db.js";
 import { respuestaError } from "./src/http.js";
 import { crearSupabaseAdmin } from "./src/config/supabaseAdmin.js";
-import { rutasPedidoSede } from "./src/pedidoSede/rutas.js";
-import { rutasPedidos } from "./src/pedidos/rutas.js";
-import { rutasSedes } from "./src/sedes/rutas.js";
+import { rutasEnvio, rutasSeguimiento } from "./src/envios/rutas.js";
+import { manejadorCompra, manejadorSugerido } from "./src/pedidos/rutas.js";
 import { crearClienteInventario } from "./src/siesa/inventario.js";
 
 /** Ruta del sistema en el front. Cada sección es una ruta hija con su permiso:
     quien tiene asignada `/automatizacion-fruver` entra a todas; a un líder se le
-    asigna solo `/automatizacion-fruver/pedido-sede`. */
+    asigna solo `/automatizacion-fruver/sugerido`. */
 export const RUTA_MODULO = "/automatizacion-fruver";
 export const RUTAS = {
+  sugerido: `${RUTA_MODULO}/sugerido`,
   compra: `${RUTA_MODULO}/pedidos`,
-  pedidoSede: `${RUTA_MODULO}/pedido-sede`,
-  sedes: `${RUTA_MODULO}/sedes`,
+  seguimiento: `${RUTA_MODULO}/seguimiento`,
 };
 
 const allowedOrigins = origenesPermitidos(process.env.FRUVER_ALLOWED_ORIGINS);
@@ -73,6 +74,7 @@ app.get("/", (_request, response) => {
     configuracion: {
       postgres: postgresConfigurado,
       siesa: inventario.configurado,
+      sesion: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY),
       pedidos: supabase.configurado,
       cors: allowedOrigins.length > 0,
     },
@@ -95,26 +97,17 @@ app.use("/api/fruver", (_request, response, next) => {
   next();
 });
 
-// Compra consolidada (compras).
-app.use(
-  "/api/fruver/pedidos",
-  requiereModulo(RUTAS.compra, { modo, resolverAcceso }),
-  rutasPedidos({ pool, inventario, supabase }),
-);
+const acceso = (ruta) => requiereModulo(ruta, { modo, resolverAcceso });
 
-// Pedido de la sede (el líder, con el QR de su sede).
-app.use(
-  "/api/fruver/sede",
-  requiereModulo(RUTAS.pedidoSede, { modo, resolverAcceso }),
-  rutasPedidoSede({ pool, inventario, supabase }),
-);
+// Sugerido por sede (los líderes): el cálculo, y ver/enviar el pedido de la sede.
+app.get("/api/fruver/sugerido", acceso(RUTAS.sugerido), manejadorSugerido({ pool, inventario }));
+app.use("/api/fruver/sugerido/envio", acceso(RUTAS.sugerido), rutasEnvio({ supabase }));
 
-// Sedes y sus QR (administración).
-app.use(
-  "/api/fruver/sedes",
-  requiereModulo(RUTAS.sedes, { modo, resolverAcceso }),
-  rutasSedes({ supabase }),
-);
+// Compra (compras): el cálculo con lo que enviaron las sedes encima.
+app.get("/api/fruver/pedidos/sugerido", acceso(RUTAS.compra), manejadorCompra({ pool, inventario, supabase }));
+
+// Seguimiento: ¿las sedes pidieron lo sugerido?
+app.use("/api/fruver/seguimiento", acceso(RUTAS.seguimiento), rutasSeguimiento({ supabase }));
 
 app.use((_request, response) => {
   response.status(404).json({ ok: false, error: "Ruta no encontrada." });

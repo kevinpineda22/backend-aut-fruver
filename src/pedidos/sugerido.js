@@ -98,6 +98,8 @@ export function armarSugerido({
         antesDeEntrega: un(antesDeEntrega),
         disponible: disponible == null ? null : un(disponible),
         inventarioAlRecibir: linea.inventarioAlRecibir == null ? null : un(linea.inventarioAlRecibir),
+        // Venta esperada con la merma: lo que hay que TENER para vender eso.
+        necesidad: un(linea.necesidad),
         sugerido: linea.sugerido,
       };
     }
