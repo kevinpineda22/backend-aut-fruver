@@ -28,6 +28,7 @@ import { crearSupabaseAdmin } from "./src/config/supabaseAdmin.js";
 import { rutasEnvio, rutasSeguimiento } from "./src/envios/rutas.js";
 import { manejadorCompra, manejadorSugerido } from "./src/pedidos/rutas.js";
 import { crearClienteInventario } from "./src/siesa/inventario.js";
+import { rutasProveedores } from "./src/proveedores/rutas.js";
 
 /** Ruta del sistema en el front. Cada sección es una ruta hija con su permiso:
     quien tiene asignada `/automatizacion-fruver` entra a todas; a un líder se le
@@ -37,6 +38,7 @@ export const RUTAS = {
   sugerido: `${RUTA_MODULO}/sugerido`,
   compra: `${RUTA_MODULO}/pedidos`,
   seguimiento: `${RUTA_MODULO}/seguimiento`,
+  proveedores: `${RUTA_MODULO}/proveedores`,
 };
 
 const allowedOrigins = origenesPermitidos(process.env.FRUVER_ALLOWED_ORIGINS);
@@ -65,6 +67,16 @@ app.use(cors({
     }
   },
 }));
+app.use("/api/fruver/proveedores", express.json({ limit: "2mb" }));
+app.use("/api/fruver/proveedores", (error, _request, response, next) => {
+  if (error.type === "entity.too.large" || error.type === "entity.parse.failed") {
+    return response.status(error.status).json({
+      ok: false,
+      error: error.type === "entity.too.large" ? "El portafolio supera el tamaño máximo de 2 MB por solicitud." : "El JSON de la solicitud no es válido.",
+    });
+  }
+  return next(error);
+});
 app.use(express.json({ limit: "32kb" }));
 
 app.get("/", (_request, response) => {
@@ -108,6 +120,11 @@ app.get("/api/fruver/pedidos/sugerido", acceso(RUTAS.compra), manejadorCompra({ 
 
 // Seguimiento: ¿las sedes pidieron lo sugerido?
 app.use("/api/fruver/seguimiento", acceso(RUTAS.seguimiento), rutasSeguimiento({ supabase }));
+
+// Los contactos personales y su CRUD siempre requieren sesión y permiso.
+app.use("/api/fruver/proveedores",
+  requiereModulo(RUTAS.proveedores, { modo: "enforce", resolverAcceso }),
+  rutasProveedores({ supabase }));
 
 app.use((_request, response) => {
   response.status(404).json({ ok: false, error: "Ruta no encontrada." });
