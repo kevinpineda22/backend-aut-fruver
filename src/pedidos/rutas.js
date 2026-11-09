@@ -1,5 +1,5 @@
 import { fechaValida, respuestaError } from "../http.js";
-import { DIAS_COBERTURA_MAX, DIAS_ENTREGA_MAX, ahoraColombia, sumarDias } from "./reglas.js";
+import { DIAS_COBERTURA_MAX, DIAS_ENTREGA_MAX, HORA_PUBLICACION_TEXTO, ahoraColombia, sugeridoPublicado, sumarDias } from "./reglas.js";
 import { calcularSugerido } from "./servicio.js";
 import { aplicarEnvios } from "../envios/reglas.js";
 import { enviosEntre } from "../envios/servicio.js";
@@ -17,14 +17,18 @@ export function leerParametros(query, hoy) {
   return { entrega, dias };
 }
 
+/** Antes de la hora de publicación no se calcula: es un estado normal, no un error. */
+const enEspera = (response) => response.json({ ok: true, data: { espera: true, publicaA: HORA_PUBLICACION_TEXTO } });
+
 /**
  * `GET ?entrega&dias` → el sugerido de todas las sedes y la compra consolidada.
  * Lo usan las dos secciones (Sugerido por sede y Compra), cada una montada en
  * app.js detrás de su propio permiso.
  */
-export function manejadorSugerido({ pool, inventario }) {
+export function manejadorSugerido({ pool, inventario, reloj = ahoraColombia }) {
   return async (request, response) => {
-    const { fecha: hoy } = ahoraColombia();
+    const { fecha: hoy, hora } = reloj();
+    if (!sugeridoPublicado(hora)) return enEspera(response);
     const parametros = leerParametros(request.query, hoy);
     if (parametros.error) return response.status(400).json({ ok: false, error: parametros.error });
     try {

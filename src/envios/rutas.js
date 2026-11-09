@@ -1,6 +1,6 @@
 import express from "express";
 import { fechaValida, respuestaError } from "../http.js";
-import { ahoraColombia, sumarDias } from "../pedidos/reglas.js";
+import { HORA_PUBLICACION_TEXTO, ahoraColombia, sugeridoPublicado, sumarDias } from "../pedidos/reglas.js";
 import { leerEnvio } from "./reglas.js";
 import { envioDeSede, enviosEntre, registrarEnvio } from "./servicio.js";
 
@@ -15,6 +15,17 @@ export const RANGO_MAXIMO = 92;
 export function requiereUsuario(request, response, next) {
   if (request.usuario?.email) return next();
   return response.status(401).json({ ok: false, error: "Inicie sesión para enviar el pedido de su sede." });
+}
+
+/**
+ * No se envía antes de la publicación: una pestaña abierta desde ayer todavía
+ * tiene en pantalla un sugerido viejo y podría mandarlo.
+ */
+export function sugeridoAbierto(reloj = ahoraColombia) {
+  return (_request, response, next) => {
+    if (sugeridoPublicado(reloj().hora)) return next();
+    return response.status(409).json({ ok: false, error: `El sugerido de hoy se publica a las ${HORA_PUBLICACION_TEXTO}. Envíe el pedido después de esa hora.` });
+  };
 }
 
 /** Lee `desde` y `hasta` de Seguimiento. Por defecto, las últimas dos semanas y lo que viene. */
@@ -42,7 +53,7 @@ export function rutasEnvio({ supabase }) {
     }
   });
 
-  router.post("/", requiereUsuario, async (request, response) => {
+  router.post("/", requiereUsuario, sugeridoAbierto(), async (request, response) => {
     const leido = leerEnvio(request.body);
     if (leido.error) return response.status(400).json({ ok: false, error: leido.error });
     const { fecha: hoy } = ahoraColombia();

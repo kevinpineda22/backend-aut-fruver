@@ -29,6 +29,14 @@ export const MERMA_MAXIMA = 0.25;
 export const FACTOR_ARMADO = 1.5;
 export const DIAS_COBERTURA_MAX = 4;
 export const DIAS_ENTREGA_MAX = 7;
+/**
+ * El sugerido se publica cada día a esta hora de Colombia (16 = 4:00 p. m.).
+ * Antes, la base sigue cambiando y el número no sirve para pedir: la réplica de
+ * ventas se refresca a las 3:00 p. m. (postgrest_post.yml) y se deja una hora de margen.
+ */
+export const HORA_PUBLICACION = 16;
+export const HORA_PUBLICACION_TEXTO = "4:00 p. m.";
+export const sugeridoPublicado = (hora) => hora >= HORA_PUBLICACION;
 
 export function sumarDias(fecha, dias) {
   const d = new Date(`${fecha}T00:00:00Z`);

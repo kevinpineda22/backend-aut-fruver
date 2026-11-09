@@ -30,6 +30,8 @@ Cada sede revisa **cuánto pedir de cada producto de fruver** (el sugerido, con 
 
 Ruta: `https://merkahorro.com/automatizacion-fruver`. Cada sección tiene su permiso (§5).
 
+**Horario:** Sugerido se publica cada día a las **4:00 p. m.** (hora de Colombia), porque durante el día la base sigue cambiando. Antes de esa hora muestra un aviso y no se puede enviar pedidos. Compra y Seguimiento están disponibles todo el día.
+
 ### 2.1 Sugerido — el líder de sede
 
 1. **Elige su sede** (el navegador la recuerda), cuándo llega el pedido y cuántos días cubre.

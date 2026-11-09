@@ -20,6 +20,8 @@ Cada sección tiene su permiso (ruta del front). Quien tiene `/automatizacion-fr
 
 ## Pedido de la sede: cómo funciona
 
+> **Se publica a las 4:00 p. m. (Colombia).** Antes de esa hora, Sugerido responde `{ espera: true, publicaA }` sin calcular y `POST /sugerido/envio` responde 409. La regla vive en el backend (`HORA_PUBLICACION`, `src/pedidos/reglas.js`). Compra y Seguimiento están abiertas todo el día.
+
 1. El líder elige su sede y ve el sugerido de cada producto.
 2. Cambia la cantidad que no le parece, quita lo que no quiere pedir y agrega lo que el sistema no sugirió. Mientras tanto, lo que cambia se guarda en su navegador.
 3. Al final de la lista, **Enviar pedido**. Se guarda una vez por sede y fecha de entrega; enviado, ya no se cambia (un segundo envío responde 409).
