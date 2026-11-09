@@ -35,6 +35,23 @@ export function leerVersion(valor) {
   return valor;
 }
 
+function leerContactos(contactos) {
+  if (!Array.isArray(contactos)) throw new ErrorPublico("Los contactos adicionales deben ser una lista.", 400);
+  return contactos.map((contacto, indice) => {
+    if (contacto == null || typeof contacto !== "object" || Array.isArray(contacto)) return contacto;
+    const limpio = { ...contacto };
+    for (const campo of ["nombre_contacto", "nombre", "telefono", "nombre_comercial"]) {
+      if (!Object.hasOwn(contacto, campo)) continue;
+      const valor = contacto[campo];
+      if (valor != null && typeof valor !== "string" && typeof valor !== "number") {
+        throw new ErrorPublico(`El campo contactos[${indice + 1}].${campo} debe ser texto.`, 400);
+      }
+      limpio[campo] = texto(valor == null ? null : String(valor), `contactos[${indice + 1}].${campo}`);
+    }
+    return limpio;
+  });
+}
+
 export function leerFicha(body, nitOriginal = null) {
   if (!body || !body.datos || !Array.isArray(body.productos) || !body.productos.length) {
     throw new ErrorPublico("El proveedor debe tener sus datos y al menos un producto.", 400);
@@ -67,7 +84,8 @@ export function leerFicha(body, nitOriginal = null) {
     producto.observaciones = p.observaciones.map((o) => o.trim()).filter(Boolean);
     return producto;
   });
-  return { datos, productos, version: nitOriginal ? leerVersion(body.version) : null };
+  return { datos, productos, version: nitOriginal ? leerVersion(body.version) : null,
+    ...(Object.hasOwn(body, "contactos") ? { contactos: leerContactos(body.contactos) } : {}) };
 }
 
 export function leerListado(query) {
