@@ -10,8 +10,8 @@
 
    Lee la réplica de SIESA en Postgres (`merkahorro_siesa`, solo lectura) y el
    inventario en vivo de SIESA (consulta estándar). No escribe en ninguno: lo
-   único que escribe son los pedidos que envían las sedes, en el Supabase de la
-   intranet (tablas fruver_envios*, sql/002_pedidos_enviados.sql).
+   que escribe son pedidos, compras, recibos y despachos en el Supabase de la
+   intranet (sql/002_pedidos_enviados.sql y sql/003_operaciones.sql).
    ============================================================================= */
 
 import "dotenv/config";
@@ -29,6 +29,7 @@ import { rutasEnvio, rutasSeguimiento } from "./src/envios/rutas.js";
 import { manejadorCompra, manejadorSugerido } from "./src/pedidos/rutas.js";
 import { crearClienteInventario } from "./src/siesa/inventario.js";
 import { rutasProveedores } from "./src/proveedores/rutas.js";
+import { rutasOperaciones } from "./src/operaciones/rutas.js";
 
 /** Ruta del sistema en el front. Cada sección es una ruta hija con su permiso:
     quien tiene asignada `/automatizacion-fruver` entra a todas; a un líder se le
@@ -39,6 +40,8 @@ export const RUTAS = {
   compra: `${RUTA_MODULO}/pedidos`,
   seguimiento: `${RUTA_MODULO}/seguimiento`,
   proveedores: `${RUTA_MODULO}/proveedores`,
+  recibo: `${RUTA_MODULO}/recibo`,
+  despacho: `${RUTA_MODULO}/despacho`,
 };
 
 const allowedOrigins = origenesPermitidos(process.env.FRUVER_ALLOWED_ORIGINS);
@@ -77,6 +80,7 @@ app.use("/api/fruver/proveedores", (error, _request, response, next) => {
   }
   return next(error);
 });
+app.use("/api/fruver/operaciones", express.json({ limit: "256kb" }));
 app.use(express.json({ limit: "32kb" }));
 
 app.get("/", (_request, response) => {
@@ -125,6 +129,20 @@ app.use("/api/fruver/seguimiento", acceso(RUTAS.seguimiento), rutasSeguimiento({
 app.use("/api/fruver/proveedores",
   requiereModulo(RUTAS.proveedores, { modo: "enforce", resolverAcceso }),
   rutasProveedores({ supabase }));
+
+for (const seccion of ["compra", "recibo", "despacho"]) {
+  app.use(`/api/fruver/operaciones/${seccion}`,
+    requiereModulo(RUTAS[seccion], { modo: "enforce", resolverAcceso }),
+    (req, _res, next) => { req.fruverSeccion = seccion; next(); },
+    rutasOperaciones({ supabase, pool, inventario }));
+}
+
+app.use((error, _request, response, next) => {
+  if (error.type === "entity.too.large" || error.type === "entity.parse.failed") {
+    return response.status(error.status).json({ ok: false, error: "El JSON no es válido o supera el tamaño permitido." });
+  }
+  return next(error);
+});
 
 app.use((_request, response) => {
   response.status(404).json({ ok: false, error: "Ruta no encontrada." });
