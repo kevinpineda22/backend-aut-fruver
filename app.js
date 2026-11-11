@@ -29,6 +29,8 @@ import { rutasEnvio, rutasSeguimiento } from "./src/envios/rutas.js";
 import { manejadorCompra, manejadorSugerido } from "./src/pedidos/rutas.js";
 import { crearClienteInventario } from "./src/siesa/inventario.js";
 import { rutasProveedores } from "./src/proveedores/rutas.js";
+import { crearClientePrecios } from "./src/precios/connekta.js";
+import { rutasPrecios } from "./src/precios/rutas.js";
 
 /** Ruta del sistema en el front. Cada sección es una ruta hija con su permiso:
     quien tiene asignada `/automatizacion-fruver` entra a todas; a un líder se le
@@ -39,6 +41,7 @@ export const RUTAS = {
   compra: `${RUTA_MODULO}/pedidos`,
   seguimiento: `${RUTA_MODULO}/seguimiento`,
   proveedores: `${RUTA_MODULO}/proveedores`,
+  precios: `${RUTA_MODULO}/precios`,
 };
 
 const allowedOrigins = origenesPermitidos(process.env.FRUVER_ALLOWED_ORIGINS);
@@ -48,6 +51,7 @@ const resolverAcceso = crearResolverAcceso({
   anonKey: process.env.SUPABASE_ANON_KEY,
 });
 const inventario = crearClienteInventario();
+const precios = crearClientePrecios();
 const supabase = crearSupabaseAdmin({
   url: process.env.SUPABASE_URL,
   serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
@@ -86,6 +90,7 @@ app.get("/", (_request, response) => {
     configuracion: {
       postgres: postgresConfigurado,
       siesa: inventario.configurado,
+      precios: precios.configurado,
       sesion: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY),
       pedidos: supabase.configurado,
       cors: allowedOrigins.length > 0,
@@ -120,6 +125,9 @@ app.get("/api/fruver/pedidos/sugerido", acceso(RUTAS.compra), manejadorCompra({ 
 
 // Seguimiento: ¿las sedes pidieron lo sugerido?
 app.use("/api/fruver/seguimiento", acceso(RUTAS.seguimiento), rutasSeguimiento({ supabase }));
+
+// Precios: etiquetas de góndola con el precio vigente de SIESA y la ubicación en la tienda.
+app.use("/api/fruver/precios", acceso(RUTAS.precios), rutasPrecios({ precios, pool, supabase }));
 
 // Los contactos personales y su CRUD siempre requieren sesión y permiso.
 app.use("/api/fruver/proveedores",

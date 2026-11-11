@@ -23,6 +23,19 @@ export const NOMBRES_SEDES = {
   "00801": "San Juan",
 };
 
+/** Lista de precios de SIESA de cada tienda (la que cobra la caja). Verificada
+    contra Sin Filas (wc_sedes.lista_precio_siesa): P05 no existe, Barbosa es P07.
+    ⚠️ database_sedes.sql del gestor ecommerce tiene un mapeo viejo y equivocado. */
+export const LISTAS_PRECIO = {
+  PV001: "P01",
+  "00201": "P02",
+  "00301": "P03",
+  "00401": "P04",
+  "00601": "P06",
+  "00701": "P07",
+  "00801": "P08",
+};
+
 const ORDEN = Object.keys(NOMBRES_SEDES);
 
 export const nombreSede = (codigo) => NOMBRES_SEDES[codigo] || codigo;
