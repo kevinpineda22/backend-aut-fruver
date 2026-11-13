@@ -13,9 +13,12 @@
    - La última lectura se guarda en memoria y en Supabase (`almacen`,
      sql/004_precios_copia.sql), así una instancia nueva de Vercel también la tiene.
    - `consultar()` devuelve esa copia al instante, con `alDia` = si tiene menos de
-     `ttlMs` (5 min).
+     `ttlMs` (30 min). Con 5 min casi todo el que entraba esperaba ~18 s para
+     imprimir; los precios de fruver cambian por fecha de activación, no a cada rato.
    - `consultar({ fresco: true })` espera la lectura de SIESA si la copia no está
      al día. La pantalla la pide sola y no deja imprimir hasta tenerla.
+   - `consultar({ forzar: true })` es el botón «Actualizar»: va a SIESA aunque la
+     copia esté al día, salvo que tenga menos de 1 minuto (no martillar SIESA).
    - Si SIESA falla, se usa la copia Y SE DICE (`desactualizado`). Nunca se
      inventa un precio: sin copia, el error sube.
 
@@ -33,6 +36,8 @@ import { normalizarFila } from "./reglas.js";
 export const TAM_PAGINA = 1000;
 /** Fusible: si `total_páginas` viniera mal, no se piden páginas para siempre. */
 export const MAXIMO_PAGINAS = 60;
+/** «Actualizar» no vuelve a leer SIESA si la copia tiene menos de esto. */
+export const FORZAR_MINIMO_MS = 60_000;
 
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -41,7 +46,7 @@ const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
  * @param {string[]} [listas]   solo se guardan estas listas de precios (las de las tiendas)
  */
 export function crearClientePrecios({
-  env = process.env, fetchImpl = globalThis.fetch, ttlMs = 5 * 60_000, ahora = Date.now, concurrencia = 4,
+  env = process.env, fetchImpl = globalThis.fetch, ttlMs = 30 * 60_000, ahora = Date.now, concurrencia = 4,
   almacen = null, listas = null,
 } = {}) {
   const base = String(env.CONNEKTA_BASE_URL || "").replace(/\/$/, "");
@@ -149,16 +154,19 @@ export function crearClientePrecios({
   }
 
   /**
-   * @param {{ fresco?: boolean }} [opciones] fresco: esperar a SIESA si la copia no está al día
+   * @param {{ fresco?: boolean, forzar?: boolean }} [opciones]
+   *   fresco: esperar a SIESA si la copia no está al día
+   *   forzar: ir a SIESA aunque esté al día («Actualizar»), salvo copia de menos de 1 min
    * @returns {Promise<{ filas: Array, consultadoEn: string, alDia: boolean, desactualizado: boolean }>}
    */
-  async function consultar({ fresco = false } = {}) {
+  async function consultar({ fresco = false, forzar = false } = {}) {
     if (!configurado) {
       throw new ErrorPublico("El servidor no tiene configurada la consulta de precios de SIESA.", 503);
     }
     const copia = await copiaGuardada();
-    if (alDia(copia)) return respuesta(copia, { alDia: true, desactualizado: false });
-    if (copia && !fresco) return respuesta(copia, { alDia: false, desactualizado: false });
+    const sirve = forzar ? Boolean(copia) && ahora() - copia.en < FORZAR_MINIMO_MS : alDia(copia);
+    if (sirve) return respuesta(copia, { alDia: true, desactualizado: false });
+    if (copia && !fresco && !forzar) return respuesta(copia, { alDia: false, desactualizado: false });
     try {
       return respuesta(await leerSiesa(), { alDia: true, desactualizado: false });
     } catch (error) {

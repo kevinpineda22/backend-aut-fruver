@@ -63,10 +63,10 @@ export async function guardarUbicaciones({ supabase, bodega, cambios, usuario })
  * Si la base de ubicaciones no responde, todo sale como BANCARELLAS con aviso:
  * la tienda puede imprimir igual.
  */
-export async function preciosDeSede({ precios, pool, supabase, bodega, hoy, fresco = false }) {
+export async function preciosDeSede({ precios, pool, supabase, bodega, hoy, fresco = false, forzar = false }) {
   const lista = LISTAS_PRECIO[bodega];
   const [datos, activos, ubicaciones] = await Promise.all([
-    precios.consultar({ fresco }),
+    precios.consultar({ fresco, forzar }),
     itemsActivos({ pool }),
     ubicacionesDeSede({ supabase, bodega }).catch((error) => {
       console.error("[precios] no se pudieron leer las ubicaciones:", error.message);
@@ -89,7 +89,7 @@ export async function preciosDeSede({ precios, pool, supabase, bodega, hoy, fres
     sedes: sedesConLista(),
     hoy,
     consultadoEn: datos.consultadoEn,
-    // false = copia de hace más de 5 min: la pantalla pide la fresca (?fresco=1)
+    // false = copia de hace más de 30 min: la pantalla pide la fresca (?fresco=1)
     // y no deja imprimir hasta tenerla.
     alDia: datos.alDia,
     desactualizado: datos.desactualizado,

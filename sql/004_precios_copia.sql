@@ -7,7 +7,7 @@
 -- hacía esperar esos 13 s a quien abría la pantalla.
 --
 -- Acá se guarda la ÚLTIMA lectura (una sola fila). La pantalla abre con esta
--- copia al instante y, si tiene más de 5 minutos, pide la fresca y NO deja
+-- copia al instante y, si tiene más de 30 minutos, pide la fresca y NO deja
 -- imprimir hasta tenerla: nunca sale una etiqueta con un precio viejo.
 --
 -- `filas` va en columnas: { "campos": [...], "datos": [[...], ...] } — los

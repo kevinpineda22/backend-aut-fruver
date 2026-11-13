@@ -375,3 +375,36 @@ describe("copia de precios en Supabase", () => {
     assert.equal(crearAlmacenPrecios({ supabase: { configurado: false } }), null);
   });
 });
+
+describe("«Actualizar» (forzar)", () => {
+  const env = { CONNEKTA_BASE_URL: "https://siesa.test/api/connekta/v3", CONNI_KEY: "k", CONNI_TOKEN: "t" };
+  const pagina = { status: 200, ok: true, json: async () => ({ codigo: 0, detalle: { Table: [cruda()], "total_páginas": 1 } }) };
+
+  it("va a SIESA aunque la copia esté al día, salvo que tenga menos de 1 minuto", async () => {
+    let llamadas = 0;
+    let reloj = 0;
+    const cliente = crearClientePrecios({ env, ahora: () => reloj, fetchImpl: async () => { llamadas++; return pagina; } });
+    await cliente.consultar();
+    assert.equal(llamadas, 1);
+
+    reloj = 30_000; // copia de 30 s: «Actualizar» no vuelve a leer
+    assert.equal((await cliente.consultar({ forzar: true })).alDia, true);
+    assert.equal(llamadas, 1);
+
+    reloj = 5 * 60_000; // al día (< 30 min) pero de más de 1 min: sí lee
+    await cliente.consultar();
+    assert.equal(llamadas, 1, "entrar normal no lee SIESA");
+    await cliente.consultar({ forzar: true });
+    assert.equal(llamadas, 2);
+  });
+
+  it("la copia vale 30 minutos", async () => {
+    let reloj = 0;
+    const cliente = crearClientePrecios({ env, ahora: () => reloj, fetchImpl: async () => pagina });
+    await cliente.consultar();
+    reloj = 29 * 60_000;
+    assert.equal((await cliente.consultar()).alDia, true);
+    reloj = 31 * 60_000;
+    assert.equal((await cliente.consultar()).alDia, false);
+  });
+});

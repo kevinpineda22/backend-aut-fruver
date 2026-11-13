@@ -15,7 +15,8 @@ function requiereUsuario(request, response, next) {
  * Precios (etiquetas de góndola):
  *   GET  /?bodega=PV001   → precios vigentes de la lista de la sede (sin bodega: solo las sedes).
  *                           Al instante, con la última lectura de SIESA (`alDia` dice si es de
- *                           hace menos de 5 min). Con `&fresco=1` espera la lectura de SIESA.
+ *                           hace menos de 30 min). Con `&fresco=1` espera la lectura de SIESA
+ *                           si no está al día; con `&forzar=1` («Actualizar») la lee igual.
  *   PUT  /ubicaciones     → { bodega, cambios: [{ item, ubicacion }] } (requiere usuario)
  */
 export function rutasPrecios({ precios, pool, supabase, reloj = ahoraColombia }) {
@@ -27,7 +28,8 @@ export function rutasPrecios({ precios, pool, supabase, reloj = ahoraColombia })
     if (!LISTAS_PRECIO[bodega]) return response.status(400).json({ ok: false, error: "La sede no tiene lista de precios." });
     try {
       const fresco = request.query.fresco === "1";
-      const data = await preciosDeSede({ precios, pool, supabase, bodega, hoy: reloj().fecha, fresco });
+      const forzar = request.query.forzar === "1";
+      const data = await preciosDeSede({ precios, pool, supabase, bodega, hoy: reloj().fecha, fresco, forzar });
       return response.json({ ok: true, data });
     } catch (error) {
       return respuestaError(response, error, "No fue posible consultar los precios en SIESA.");
