@@ -14,6 +14,11 @@ import { UBICACION_POR_DEFECTO, agruparPrecios, codigoItem, productosDeLista } f
 export const sedesConLista = () =>
   ordenarSedes(Object.keys(LISTAS_PRECIO)).map((codigo) => ({ codigo, nombre: nombreSede(codigo), lista: LISTAS_PRECIO[codigo] }));
 
+/** "13 de nov., 9:50 a. m." en hora de Colombia. */
+export const fechaHora = (iso) => new Intl.DateTimeFormat("es-CO", {
+  day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: "America/Bogota",
+}).format(new Date(iso));
+
 const ACTIVOS_TTL = 30 * 60_000;
 let activosGuardados = null;
 
@@ -58,10 +63,10 @@ export async function guardarUbicaciones({ supabase, bodega, cambios, usuario })
  * Si la base de ubicaciones no responde, todo sale como BANCARELLAS con aviso:
  * la tienda puede imprimir igual.
  */
-export async function preciosDeSede({ precios, pool, supabase, bodega, hoy }) {
+export async function preciosDeSede({ precios, pool, supabase, bodega, hoy, fresco = false }) {
   const lista = LISTAS_PRECIO[bodega];
   const [datos, activos, ubicaciones] = await Promise.all([
-    precios.consultar(),
+    precios.consultar({ fresco }),
     itemsActivos({ pool }),
     ubicacionesDeSede({ supabase, bodega }).catch((error) => {
       console.error("[precios] no se pudieron leer las ubicaciones:", error.message);
@@ -73,7 +78,9 @@ export async function preciosDeSede({ precios, pool, supabase, bodega, hoy }) {
   const conUbicacion = productos.map((p) => ({ ...p, ubicacion: ubicaciones?.get(p.item) || UBICACION_POR_DEFECTO }));
 
   const avisos = [];
-  if (datos.desactualizado) avisos.push(`SIESA no respondió: los precios son de la consulta de las ${datos.consultadoEn}.`);
+  if (datos.desactualizado) {
+    avisos.push(`SIESA no respondió: los precios son de la última lectura (${fechaHora(datos.consultadoEn)}). Si hubo un cambio después, la etiqueta no lo tiene.`);
+  }
   if (!activos) avisos.push("No se pudo saber qué productos están activos: pueden aparecer productos que ya no se venden.");
   if (!ubicaciones) avisos.push("No se pudieron leer las ubicaciones guardadas: todos los productos aparecen como Bancarellas.");
 
@@ -82,6 +89,9 @@ export async function preciosDeSede({ precios, pool, supabase, bodega, hoy }) {
     sedes: sedesConLista(),
     hoy,
     consultadoEn: datos.consultadoEn,
+    // false = copia de hace más de 5 min: la pantalla pide la fresca (?fresco=1)
+    // y no deja imprimir hasta tenerla.
+    alDia: datos.alDia,
     desactualizado: datos.desactualizado,
     avisos,
     productos: conUbicacion,

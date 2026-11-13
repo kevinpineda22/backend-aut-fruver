@@ -30,6 +30,8 @@ import { manejadorCompra, manejadorSugerido } from "./src/pedidos/rutas.js";
 import { crearClienteInventario } from "./src/siesa/inventario.js";
 import { rutasProveedores } from "./src/proveedores/rutas.js";
 import { crearClientePrecios } from "./src/precios/connekta.js";
+import { crearAlmacenPrecios } from "./src/precios/copia.js";
+import { LISTAS_PRECIO } from "./src/sedes.js";
 import { rutasPrecios } from "./src/precios/rutas.js";
 import { rutasOperaciones } from "./src/operaciones/rutas.js";
 
@@ -54,10 +56,14 @@ const resolverAcceso = crearResolverAcceso({
   anonKey: process.env.SUPABASE_ANON_KEY,
 });
 const inventario = crearClienteInventario();
-const precios = crearClientePrecios();
 const supabase = crearSupabaseAdmin({
   url: process.env.SUPABASE_URL,
   serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+});
+// La última lectura de SIESA queda en Supabase: abrir Precios no espera los ~13 s de Connekta.
+const precios = crearClientePrecios({
+  almacen: crearAlmacenPrecios({ supabase }),
+  listas: Object.values(LISTAS_PRECIO),
 });
 
 console.log(`[auth] FRUVER_AUTH=${modo}`);

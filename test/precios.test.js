@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { MAXIMO_PAGINAS, crearClientePrecios } from "../src/precios/connekta.js";
+import { comprimir, crearAlmacenPrecios, expandir } from "../src/precios/copia.js";
 import {
   agruparPrecios, codigoItem, estadoPrecio, fechaDe, leerUbicaciones, normalizarFila, productosDeLista, unidadEtiqueta,
 } from "../src/precios/reglas.js";
@@ -238,9 +239,65 @@ describe("cliente de Connekta", () => {
     await cliente.consultar();
     falla = true;
     reloj = 100;
-    const r = await cliente.consultar();
+    const r = await cliente.consultar({ fresco: true });
     assert.equal(r.desactualizado, true);
+    assert.equal(r.alDia, false);
     assert.equal(r.filas.length, 1);
+  });
+
+  it("con una copia vieja responde al instante sin SIESA; `fresco` sí espera a SIESA", async () => {
+    let llamadas = 0;
+    let reloj = 0;
+    const cliente = crearClientePrecios({
+      env, ttlMs: 10, ahora: () => reloj,
+      fetchImpl: async () => { llamadas++; return paginaDe(1, 1); },
+    });
+    assert.equal((await cliente.consultar()).alDia, true);
+    reloj = 100;
+    const vieja = await cliente.consultar();
+    assert.equal(vieja.alDia, false);
+    assert.equal(llamadas, 1, "la copia vieja no va a SIESA");
+    const fresca = await cliente.consultar({ fresco: true });
+    assert.equal(fresca.alDia, true);
+    assert.equal(llamadas, 2);
+  });
+
+  it("una instancia nueva abre con la copia de Supabase, sin esperar a SIESA", async () => {
+    let llamadas = 0;
+    const almacen = {
+      leer: async () => ({ filas: [{ item: "7", lista: "P01" }], consultadoEn: new Date(1_000).toISOString() }),
+      guardar: async () => {},
+    };
+    const cliente = crearClientePrecios({
+      env, ttlMs: 5_000, ahora: () => 3_000, almacen,
+      fetchImpl: async () => { llamadas++; return paginaDe(1, 1); },
+    });
+    const r = await cliente.consultar();
+    assert.equal(llamadas, 0);
+    assert.equal(r.alDia, true);
+    assert.deepEqual(r.filas.map((f) => f.item), ["7"]);
+  });
+
+  it("guarda en Supabase solo las listas de las tiendas, y si guardar falla igual responde", async () => {
+    const guardadas = [];
+    const cliente = crearClientePrecios({
+      env, listas: ["P01"],
+      almacen: { leer: async () => null, guardar: async ({ filas }) => { guardadas.push(filas); throw new Error("supabase caído"); } },
+      fetchImpl: async () => respuesta(200, { codigo: 0, detalle: { Table: [cruda({ Lista: "P01" }), cruda({ Lista: "P90" })], "total_páginas": 1 } }),
+    });
+    const r = await cliente.consultar();
+    assert.deepEqual(r.filas.map((f) => f.lista), ["P01"]);
+    assert.deepEqual(guardadas[0].map((f) => f.lista), ["P01"]);
+  });
+
+  it("si Supabase no responde, va a SIESA", async () => {
+    let llamadas = 0;
+    const cliente = crearClientePrecios({
+      env, almacen: { leer: async () => { throw new Error("timeout"); }, guardar: async () => {} },
+      fetchImpl: async () => { llamadas++; return paginaDe(1, 1); },
+    });
+    assert.equal((await cliente.consultar()).alDia, true);
+    assert.equal(llamadas, 1);
   });
 
   it("sin copia, el error sube (nunca un precio inventado)", async () => {
@@ -276,5 +333,45 @@ describe("cliente de Connekta", () => {
     const cliente = crearClientePrecios({ env: {} });
     assert.equal(cliente.configurado, false);
     await assert.rejects(cliente.consultar(), (e) => e.status === 503);
+  });
+});
+
+describe("copia de precios en Supabase", () => {
+  const fila = {
+    item: "5098", descripcion: "BANANO", umInventario: "KL", subgrupo: "FRUTA", separata: null,
+    lista: "P01", um: "KL", precio: 3200, activacion: "2026-11-10", inactivacion: null, actualizacion: "2026-11-10T06:00:00",
+  };
+
+  it("comprimir y expandir devuelven las mismas filas", () => {
+    const c = comprimir([fila]);
+    assert.equal(c.datos[0].length, c.campos.length);
+    assert.deepEqual(expandir(JSON.parse(JSON.stringify(c))), [fila]);
+  });
+
+  it("una copia rota o vacía se lee como sin filas", () => {
+    assert.deepEqual(expandir(null), []);
+    assert.deepEqual(expandir({ campos: "x" }), []);
+  });
+
+  it("lee la fila 1 y guarda por la función, nunca por la tabla", async () => {
+    const llamadas = [];
+    const supabase = {
+      configurado: true,
+      select: async (tabla, consulta) => { llamadas.push(["select", tabla, consulta.id]); return [{ filas: comprimir([fila]), consultado_en: "2026-11-13T15:00:00+00:00" }]; },
+      rpc: async (nombre, args) => { llamadas.push(["rpc", nombre, args.p_consultado_en]); return true; },
+    };
+    const almacen = crearAlmacenPrecios({ supabase });
+    const leida = await almacen.leer();
+    assert.deepEqual(leida.filas, [fila]);
+    assert.equal(leida.consultadoEn, "2026-11-13T15:00:00+00:00");
+    await almacen.guardar({ filas: [fila], consultadoEn: "2026-11-13T15:05:00.000Z" });
+    assert.deepEqual(llamadas, [
+      ["select", "fruver_precios_copia", "eq.1"],
+      ["rpc", "fruver_guardar_copia_precios", "2026-11-13T15:05:00.000Z"],
+    ]);
+  });
+
+  it("sin Supabase configurado no hay almacén (queda solo la memoria)", () => {
+    assert.equal(crearAlmacenPrecios({ supabase: { configurado: false } }), null);
   });
 });
