@@ -9,6 +9,21 @@ import { armarSugerido } from "./sugerido.js";
 /** 1 = lunes … 7 = domingo (como ISODOW de Postgres). */
 const diaIso = (fecha) => ((new Date(`${fecha}T00:00:00Z`).getUTCDay() + 6) % 7) + 1;
 
+export async function consultarCatalogoFruver({ pool, momento = new Date() }) {
+  const { fecha: hoy } = ahoraColombia(momento);
+  const ventas = await consultarVentas(pool, {
+    desde: sumarDias(hoy, -7 * (SEMANAS_HISTORIA + SEMANAS_MARGEN)), hasta: sumarDias(hoy, -1),
+  });
+  if (!ventas.length) throw new ErrorPublico("No hay productos de Fruver en la historia utilizada por Sugerido.", 404);
+  const maestro = await consultarMaestro(pool);
+  const unidades = new Map(maestro.map((p) => [String(p.item), p.um]));
+  const productos = new Map();
+  for (const p of ventas) if (!productos.has(p.item)) {
+    productos.set(p.item, { item: p.item, descripcion: p.descripcion, um: unidades.get(p.item) || null, subgrupo: p.subgrupo });
+  }
+  return [...productos.values()].sort((a, b) => a.descripcion.localeCompare(b.descripcion, "es"));
+}
+
 /**
  * Sugerido de pedido de fruver por sede para la entrega dada.
  * Las consultas van en serie: el pool tiene una sola conexión.

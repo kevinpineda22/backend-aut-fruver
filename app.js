@@ -142,7 +142,7 @@ app.use("/api/fruver/precios", acceso(RUTAS.precios), rutasPrecios({ precios, po
 // Los contactos personales y su CRUD siempre requieren sesión y permiso.
 app.use("/api/fruver/proveedores",
   requiereModulo(RUTAS.proveedores, { modo: "enforce", resolverAcceso }),
-  rutasProveedores({ supabase }));
+  rutasProveedores({ supabase, pool }));
 
 for (const seccion of ["compra", "recibo", "despacho", "seguimiento"]) {
   app.use(`/api/fruver/operaciones/${seccion}`,

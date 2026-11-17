@@ -1,6 +1,7 @@
 import express from "express";
 import { ErrorPublico, respuestaError } from "../http.js";
 import { leerFicha, leerListado, leerNit, leerVersion } from "./reglas.js";
+import { consultarCatalogoFruver } from "../pedidos/servicio.js";
 
 const ERRORES = {
   PROVEEDOR_NO_EXISTE: [404, "El proveedor ya no existe."],
@@ -11,7 +12,7 @@ const ERRORES = {
   CONTACTOS_INVALIDOS: [400, "Los contactos adicionales deben ser una lista."],
 };
 
-export function rutasProveedores({ supabase }) {
+export function rutasProveedores({ supabase, pool, catalogo = consultarCatalogoFruver }) {
   const router = express.Router();
   const manejar = (mensaje, accion) => async (request, response) => {
     try {
@@ -24,6 +25,9 @@ export function rutasProveedores({ supabase }) {
   };
   router.get("/", manejar("No fue posible consultar los proveedores.", async (req, res) => {
     res.json({ ok: true, data: await supabase.rpc("fruver_listar_proveedores", leerListado(req.query)) });
+  }));
+  router.get("/catalogo", manejar("No fue posible consultar el catálogo de Fruver.", async (_req, res) => {
+    res.json({ ok: true, data: { items: await catalogo({ pool }) } });
   }));
   router.get("/:nit", manejar("No fue posible consultar el proveedor.", async (req, res) => {
     const data = await supabase.rpc("fruver_ficha_proveedor", { p_nit: leerNit(req.params.nit) });
