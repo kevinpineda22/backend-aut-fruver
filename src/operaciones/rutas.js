@@ -1,12 +1,13 @@
 import express from "express";
+import { isDeepStrictEqual } from "node:util";
 import { ErrorPublico, respuestaError } from "../http.js";
 import { enviosEntre } from "../envios/servicio.js";
 import { aplicarEnvios } from "../envios/reglas.js";
 import { calcularSugerido } from "../pedidos/servicio.js";
 import { leerNit } from "../proveedores/reglas.js";
-import { alertasEstado, aplicarAccion, baseDeCompra, leerAccion, leerEntrega, productoProveedor } from "./reglas.js";
+import { alertasEstado, aplicarAccion, aplicarCompras, baseDeCompra, leerAccion, leerEntrega, productoProveedor } from "./reglas.js";
 
-const permisos = { abrir: "compra", pedidos: "compra", compra: "compra", costo: "compra", recibo: "recibo", despacho: "despacho" };
+const permisos = { abrir: "compra", pedidos: "compra", compra: "compra", compras: "compra", costo: "compra", recibo: "recibo", despacho: "despacho" };
 const permisoAccion = (a) => a.tipo === "ajuste"
   ? ({ compras: "compra", recibos: "recibo", despachos: "despacho" })[a.coleccion] : permisos[a.tipo];
 const tabla = "fruver_operaciones";
@@ -31,8 +32,8 @@ export function rutasOperaciones({ supabase, pool, inventario, calcular = calcul
   }));
   router.get("/proveedores", manejar(async (req, res) => {
     if (req.fruverSeccion !== "compra") throw new ErrorPublico("No tiene permiso para consultar portafolios.", 403);
-    const item = String(req.query.item || "").trim();
-    if (!item || item.length > 100) throw new ErrorPublico("Seleccione un producto.", 400);
+    const item = req.query.item == null ? null : String(req.query.item).trim();
+    if (item !== null && (!item || item.length > 100)) throw new ErrorPublico("Seleccione un producto válido.", 400);
     // Se usa el contrato del directorio existente, sin depender de su tabla privada.
     const proveedores = [];
     for (let pagina = 1; ; pagina += 1) {
@@ -43,11 +44,14 @@ export function rutasOperaciones({ supabase, pool, inventario, calcular = calcul
       for (let i = 0; i < lista.proveedores.length; i += 8) {
         const fichas = await Promise.all(lista.proveedores.slice(i, i + 8)
           .map((p) => supabase.rpc("fruver_ficha_proveedor", { p_nit: p.nit })));
-        for (const ficha of fichas) if (productoProveedor(ficha, item)) {
+        for (const ficha of fichas) {
+          if (!ficha?.datos || !Array.isArray(ficha.productos)) throw new ErrorPublico("El portafolio de un proveedor no se pudo consultar.", 502);
+          if (item === null ? ficha.productos.length > 0 : productoProveedor(ficha, item)) {
           proveedores.push({ nit: ficha.datos.nit, nombre: ficha.datos.nombre_comercial || ficha.datos.razon_social,
             productos: ficha.productos.map((p) => ({
               referencia: p.referencia_producto, descripcion: p.descripcion_producto, um: p.unidad_medida,
             })) });
+          }
         }
       }
       if (pagina * lista.porPagina >= lista.total) break;
@@ -66,8 +70,7 @@ export function rutasOperaciones({ supabase, pool, inventario, calcular = calcul
       select: "solicitud", id: `eq.${accion.solicitud}`,
     });
     if (previos.length) {
-      const mismas = Object.keys(solicitud).length === Object.keys(previos[0].solicitud).length
-        && Object.entries(solicitud).every(([k, v]) => previos[0].solicitud[k] === v);
+      const mismas = isDeepStrictEqual(solicitud, previos[0].solicitud);
       if (!mismas) throw new ErrorPublico("El identificador ya corresponde a otra solicitud.", 409);
       return res.json({ ok: true, data: { guardado: true, repetido: true } });
     }
@@ -98,6 +101,16 @@ export function rutasOperaciones({ supabase, pool, inventario, calcular = calcul
       estado = actual ? { ...actual.estado, base } : { base, compras: [], recibos: [], despachos: [] };
       evento = { antes: actual?.estado.base || null, despues: base, alertas: alertasEstado(estado),
         motivo: actual ? "Actualización de pedidos; se conserva el inventario inicial" : "Apertura con pedidos e inventario del acopio" };
+    } else if (accion.tipo === "compras") {
+      if (!actual) throw new ErrorPublico("Compras debe abrir la operación para esta entrega.", 409);
+      const nits = [...new Set(accion.lineas.map((l) => leerNit(l.nit)))];
+      const proveedores = new Map();
+      for (let i = 0; i < nits.length; i += 8) {
+        const lote = nits.slice(i, i + 8);
+        const fichas = await Promise.all(lote.map((nit) => supabase.rpc("fruver_ficha_proveedor", { p_nit: nit })));
+        lote.forEach((nit, indice) => proveedores.set(nit, fichas[indice]));
+      }
+      ({ estado, evento } = aplicarCompras(actual.estado, accion.lineas, proveedores));
     } else {
       if (!actual) throw new ErrorPublico("Compras debe abrir la operación para esta entrega.", 409);
       const proveedor = accion.tipo === "compra"

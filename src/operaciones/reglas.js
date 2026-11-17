@@ -14,8 +14,21 @@ export function leerAccion(body) {
   if (!body || !uuid(body.solicitud) || !Number.isSafeInteger(body.version) || body.version < 0) {
     fallar("Recargue la operación: faltan su identificador o versión.");
   }
-  if (!["abrir", "pedidos", "compra", "recibo", "despacho", "ajuste", "costo"].includes(body.tipo)) fallar("La operación no es válida.");
+  if (!["abrir", "pedidos", "compra", "compras", "recibo", "despacho", "ajuste", "costo"].includes(body.tipo)) fallar("La operación no es válida.");
   const a = { solicitud: body.solicitud, version: body.version, tipo: body.tipo };
+  if (a.tipo === "compras") {
+    if (!Array.isArray(body.lineas) || !body.lineas.length || body.lineas.length > 500) fallar("Seleccione entre 1 y 500 productos para comprar.");
+    a.lineas = body.lineas.map((linea) => {
+      const l = leerAccion({ ...linea, tipo: "compra", version: a.version });
+      if (!l.item || !l.nit) fallar("Cada producto debe tener referencia y proveedor.");
+      return { solicitud: l.solicitud, item: l.item, nit: l.nit, cantidad: l.cantidad, costo: l.costo, motivo: l.motivo || "" };
+    });
+    if (new Set(a.lineas.map((l) => l.item)).size !== a.lineas.length
+      || new Set([a.solicitud, ...a.lineas.map((l) => l.solicitud)]).size !== a.lineas.length + 1) {
+      fallar("Hay productos o identificadores repetidos en la compra.");
+    }
+    return a;
+  }
   for (const campo of ["item", "nit", "compraId", "bodega", "objetivoId", "coleccion", "motivo"]) {
     if (body[campo] != null && (typeof body[campo] !== "string" || body[campo].length > 2000)) fallar(`El campo ${campo} no es válido.`);
     if (body[campo] != null) a[campo] = body[campo].trim();
@@ -83,6 +96,9 @@ export function baseDeCompra(datos) {
   return {
     inventarioEn: datos.inventario.consultadoEn,
     sedes: datos.sedes,
+    envios: datos.envios.filter((e) => e.enviado).map((e) => ({
+      bodega: e.bodega, sedeNombre: datos.sedes.find((s) => s.codigo === e.bodega)?.nombre || e.bodega,
+    })),
     items: datos.items.filter((p) => !p.armado && p.pedidoTiendas > 0).map((p) => ({
       item: p.item, descripcion: p.descripcion, um: p.um, pedidoTiendas: p.pedidoTiendas,
       comprar: p.acopioDisponible == null ? null : redondear(Math.max(0, p.pedidoTiendas - p.acopioDisponible)),
@@ -103,6 +119,7 @@ export function aplicarAccion(estado, accion, proveedor = null) {
   let item;
   if (accion.tipo === "compra") {
     if (!producto || !proveedor || !productoProveedor(proveedor, producto.item)) fallar("El proveedor no vende este producto o no pertenece al pedido.");
+    if (nuevo.compras.some((c) => c.id === accion.solicitud)) fallar("El identificador del producto ya fue registrado. Recargue la operación.", 409);
     item = producto.item;
     despues = { id: accion.solicitud, item, nit: proveedor.datos.nit,
       proveedor: proveedor.datos.nombre_comercial || proveedor.datos.razon_social,
@@ -141,4 +158,18 @@ export function aplicarAccion(estado, accion, proveedor = null) {
   });
   if (relevantes.length && !accion.motivo) fallar("Hay diferencias de cantidades o inventario. Ingrese un motivo para continuar.");
   return { estado: nuevo, evento: { antes, despues, alertas, motivo: accion.motivo || null } };
+}
+
+export function aplicarCompras(estado, lineas, proveedores) {
+  let nuevo = estado;
+  const detalles = [];
+  for (const linea of lineas) {
+    const resultado = aplicarAccion(nuevo, { ...linea, tipo: "compra" }, proveedores.get(linea.nit));
+    nuevo = resultado.estado;
+    detalles.push(resultado.evento);
+  }
+  return { estado: nuevo, evento: {
+    antes: null, despues: detalles.map((e) => e.despues), detalles, alertas: alertasEstado(nuevo),
+    motivo: lineas.filter((l) => l.motivo).map((l) => `${l.item}: ${l.motivo}`).join("\n") || null,
+  } };
 }

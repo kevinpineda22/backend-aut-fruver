@@ -144,7 +144,7 @@ app.use("/api/fruver/proveedores",
   requiereModulo(RUTAS.proveedores, { modo: "enforce", resolverAcceso }),
   rutasProveedores({ supabase }));
 
-for (const seccion of ["compra", "recibo", "despacho"]) {
+for (const seccion of ["compra", "recibo", "despacho", "seguimiento"]) {
   app.use(`/api/fruver/operaciones/${seccion}`,
     requiereModulo(RUTAS[seccion], { modo: "enforce", resolverAcceso }),
     (req, _res, next) => { req.fruverSeccion = seccion; next(); },
