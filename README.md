@@ -18,6 +18,7 @@ Cada sección tiene su permiso (ruta del front). Quien tiene `/automatizacion-fr
 | Compra | Compras | `/automatizacion-fruver/pedidos` | `GET /api/fruver/pedidos/sugerido?entrega&dias` |
 | Seguimiento | Dirección / compras | `/automatizacion-fruver/seguimiento` | `GET /api/fruver/seguimiento?desde&hasta` |
 | Asertividad | Dirección / compras | `/automatizacion-fruver/asertividad` | `GET /api/fruver/asertividad?semanas` (2–16, por defecto 8) |
+| Cumplimiento | Dirección / compras | `/automatizacion-fruver/cumplimiento` (siempre `enforce`) | `GET /api/fruver/cumplimiento?desde&hasta` (por defecto, 30 días hasta ayer; máx. 92) |
 
 ## Pedido de la sede: cómo funciona
 
@@ -91,6 +92,18 @@ Reglas puras en `src/pedidos/reglas.js` y `sugerido.js` (probadas en `test/pedid
 - Tests: `test/asertividad.test.js` (incluye que lo vendido el día anterior no cambie el pronóstico: sin fuga).
 
 Variantes probadas y descartadas (2026-11-18, backtest de 16 semanas): índice de quincena **por sede** (solo 0,3 pts mejor que el global, con siete índices que estimar) y **corrección del error por fase** sobre la fórmula (0,6 pts peor que el índice).
+
+## Cumplimiento de proveedores
+
+`src/cumplimiento/`. Nivel de servicio de entrega: compras contra recibos de `fruver_operaciones.estado`. Renglón = (entrega, producto, proveedor); cumplido = min(recibido, comprado); cumplimiento = Σ cumplido·costo ÷ Σ comprado·costo. Lo sobreentregado va aparte (no compensa). Completo = ≥ 98 %.
+
+- Atribución del recibo: `compraId` → proveedor de la compra; recibo a ciegas con `nit` → ese; sin `nit` → el único proveedor del producto ese día, o **sin atribuir** si hubo varios (sale en `observaciones`).
+- Solo entregas `< hoy` con al menos un recibo. Producto comprado sin recibo en una entrega con recibos = no entregado.
+- Costo: compra → promedio del producto en el período → último costo SIESA (`consultarCompras`, 90 días).
+- Responde `global`, `proveedores[]` (con `productos[]`), `fechas[]`, `lineas[]` y `observaciones`.
+- Tests: `test/cumplimiento.test.js`.
+
+**Recibo a ciegas con proveedor**: cada línea de `recibo_ciego` acepta `nit` opcional (se valida contra las compras de ese producto; repetido = item+nit). `vistaRecibo` expone `proveedores: [{nit, nombre}]` por producto, sin cantidades. Tests: `test/recibo-ciego.test.js`. Contrato en `docs/AUTOMATIZACION_FRUVER.md` §4.
 
 ## Fuentes y gotchas
 

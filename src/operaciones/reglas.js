@@ -34,9 +34,11 @@ export function leerAccion(body) {
     a.lineas = body.lineas.map((linea) => {
       const l = leerAccion({ ...linea, tipo: "recibo", version: a.version });
       if (!l.item) fallar("Seleccione el producto que está recibiendo.");
-      return { solicitud: l.solicitud, item: l.item, cantidad: l.cantidad };
+      // El proveedor que entrega es OPCIONAL (el front de recibo que no lo manda
+      // sigue funcionando). Con él se mide cuánto cumplió cada proveedor.
+      return { solicitud: l.solicitud, item: l.item, cantidad: l.cantidad, ...(l.nit && { nit: l.nit }) };
     });
-    if (new Set(a.lineas.map((l) => l.item)).size !== a.lineas.length
+    if (new Set(a.lineas.map((l) => `${l.item}|${l.nit || ""}`)).size !== a.lineas.length
       || new Set([a.solicitud, ...a.lineas.map((l) => l.solicitud)]).size !== a.lineas.length + 1) {
       fallar("Hay productos o identificadores repetidos en el recibo.");
     }
@@ -84,11 +86,23 @@ function itemRecibo(estado, recibo) {
   return item;
 }
 
+/** Proveedores a los que se les compró el producto (sin cantidades: el recibo es a ciegas). */
+export function proveedoresDe(estado, item) {
+  const vistos = new Map();
+  for (const c of estado.compras) {
+    if (c.item === item && c.cantidad > 0 && !vistos.has(c.nit)) vistos.set(c.nit, { nit: c.nit, nombre: c.proveedor || c.nit });
+  }
+  return [...vistos.values()];
+}
+
 export function vistaRecibo(estado) {
   return {
     base: { items: estado.base.items.filter((p) => estado.compras.some((c) => c.item === p.item && c.cantidad > 0))
-      .map(({ item, descripcion, um }) => ({ item, descripcion, um })) },
-    recibos: estado.recibos.map((r) => ({ id: r.id, item: itemRecibo(estado, r), cantidad: r.cantidad })),
+      .map(({ item, descripcion, um }) => ({ item, descripcion, um, proveedores: proveedoresDe(estado, item) })) },
+    recibos: estado.recibos.map((r) => ({
+      id: r.id, item: itemRecibo(estado, r), cantidad: r.cantidad,
+      ...((r.nit || r.compraId) && { nit: r.nit || estado.compras.find((c) => c.id === r.compraId)?.nit }),
+    })),
   };
 }
 
@@ -107,13 +121,18 @@ export function aplicarReciboCiego(estado, lineas) {
   for (const l of lineas) {
     if (!nuevo.base.items.some((p) => p.item === l.item)
       || !nuevo.compras.some((c) => c.item === l.item && c.cantidad > 0)) fallar("Seleccione un producto disponible para recibir.");
+    if (l.nit && !nuevo.compras.some((c) => c.item === l.item && c.nit === l.nit && c.cantidad > 0)) {
+      fallar("A ese proveedor no se le compró este producto para esta entrega.");
+    }
     if (nuevo.recibos.some((r) => r.id === l.solicitud)) fallar("El recibo ya fue registrado. Recargue la operación.", 409);
-    const recibo = { id: l.solicitud, item: l.item, cantidad: l.cantidad };
+    const recibo = { id: l.solicitud, item: l.item, cantidad: l.cantidad, ...(l.nit && { nit: l.nit }) };
     nuevo.recibos.push(recibo);
     recibos.push(recibo);
   }
+  const conProveedor = recibos.every((r) => r.nit);
   return { estado: nuevo, evento: { antes: null, despues: recibos, alertas: alertasEstado(nuevo),
-    resumen: resumenRecibo(nuevo, recibos), motivo: "Recibo a ciegas por producto, sin asignación a proveedor." } };
+    resumen: resumenRecibo(nuevo, recibos),
+    motivo: conProveedor ? "Recibo a ciegas por producto y proveedor." : "Recibo a ciegas por producto, sin asignación a proveedor." } };
 }
 
 export function alertasEstado(estado) {

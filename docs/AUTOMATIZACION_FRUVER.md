@@ -86,6 +86,23 @@ Filtro: últimas 4, 8, 12 o 16 semanas.
 
 Límites que la pantalla dice: mide la venta esperada, no el pedido; un día de agotado la venta es menor que la demanda; es la fórmula de hoy aplicada a días pasados.
 
+### 2.5 Cumplimiento de proveedores (nivel de servicio de entrega)
+
+De lo que se le compró a cada proveedor, ¿cuánto llegó? Compara las **compras** de Operaciones (qué se le pidió a quién) con los **recibos** (qué llegó). Filtro: rango de fechas de entrega (por defecto, los últimos 30 días hasta ayer).
+
+- **Cumplimiento** = de cada $100 comprados, cuántos llegaron. Por renglón (entrega × producto × proveedor) cuenta lo menor entre recibido y comprado: **lo que llega de más no compensa lo que faltó** y se muestra aparte («Llegó de más»). Ponderado en plata. Meta en pantalla: 95 % (verde ≥ 95 %, ámbar ≥ 85 %, rojo debajo).
+- **Renglón completo** = llegó al menos el 98 % de lo comprado (tolerancia de báscula).
+- Por proveedor (al tocarlo, por producto), por entrega y renglón por renglón (filtro por proveedor y «solo los que no llegaron completos»).
+
+Reglas:
+
+- Solo entregas **ya pasadas** y con **al menos un recibo registrado**. Una entrega con compras y sin ningún recibo no se mide (se avisa): no se registró el recibo, no es que no llegó nada.
+- En una entrega con recibos, un producto comprado sin recibo cuenta como **no entregado** («Sin recibo»).
+- Recibo por compra → el proveedor de esa compra. Recibo a ciegas **con proveedor** → ese proveedor. Recibo a ciegas **sin proveedor** → si a ese producto se le compró a un solo proveedor ese día, a él; si a varios, **no se puede atribuir** y queda fuera (se avisa). Por eso el recibo a ciegas ahora acepta el proveedor (ver §4).
+- Costo para ponderar: el de la compra → el promedio del producto en el período → el último costo de compra en SIESA (90 días). Hoy casi todas las compras quedan con costo pendiente, así que el respaldo es la regla; la pantalla avisa cuántos renglones usan costo estimado.
+
+Primera medición (18 nov 2026): 2 entregas, 5 renglones, 58 % de cumplimiento — el 12 nov solo se registró el recibo de la papa. Con tan pocas operaciones el número todavía no dice nada de los proveedores.
+
 ---
 
 ## 3. Cómo se calcula el sugerido
@@ -135,6 +152,20 @@ Tablas en el Supabase de la intranet (`sql/002_pedidos_enviados.sql`):
 - Una sede envía **una vez** por fecha de entrega.
 - RLS sin políticas: solo el backend, con la clave secreta, lee y escribe.
 
+**Recibo a ciegas con proveedor (2026-11-18, compatible hacia atrás).** `POST /api/fruver/operaciones/recibo` con `tipo: "recibo_ciego"` acepta en cada línea un `nit` **opcional**:
+
+```json
+{ "tipo": "recibo_ciego", "solicitud": "<uuid>", "version": 5,
+  "lineas": [ { "solicitud": "<uuid>", "item": "5167", "nit": "43168338", "cantidad": 9.5 },
+              { "solicitud": "<uuid>", "item": "5167", "nit": "98567962", "cantidad": 10 } ] }
+```
+
+- Sin `nit` funciona igual que antes (un front que no lo manda no se rompe).
+- Con `nit`: tiene que existir una compra vigente de ese producto a ese proveedor en la entrega (si no, 400). El recibo se guarda con su `nit`.
+- Repetido = mismo producto **y** mismo proveedor (el mismo producto de dos proveedores en un recibo es válido).
+- La vista del recibo (`vistaRecibo`) trae, por producto, `proveedores: [{ nit, nombre }]` — **sin cantidades**, para que siga siendo a ciegas — y cada recibo trae su `nit` cuando se conoce.
+- Para el front de Recibo (equipo de Kevin): mostrar el selector de proveedor cuando el producto tiene más de uno en `proveedores`; con uno solo, mandarlo sin preguntar.
+
 ---
 
 ## 5. Permisos
@@ -146,6 +177,7 @@ Tablas en el Supabase de la intranet (`sql/002_pedidos_enviados.sql`):
 | Compra consolidada — `/automatizacion-fruver/pedidos` | Compra. |
 | Seguimiento del sugerido — `/automatizacion-fruver/seguimiento` | Seguimiento. |
 | Asertividad del sugerido — `/automatizacion-fruver/asertividad` | Asertividad. |
+| Cumplimiento de proveedores Fruver — `/automatizacion-fruver/cumplimiento` | Cumplimiento. **Siempre exige sesión** (como Operaciones), aunque `FRUVER_AUTH` esté en `report`. |
 
 - El **admin no tiene pase directo**: también hay que asignarle la ruta.
 - Sin usuario identificado no se envía nada, en ningún modo.
@@ -167,6 +199,8 @@ Tablas en el Supabase de la intranet (`sql/002_pedidos_enviados.sql`):
 | Villahermosa (`00201`) | Compra fruver por su cuenta: confirmar con compras si envía pedido. |
 | Festivos | Un festivo no se distingue de un día normal en el cálculo. |
 | Líder contra sistema, contra la venta real | Asertividad mide el pronóstico del sistema. Falta comparar lo que PIDIÓ el líder con lo que se vendió: ¿quién acertó más? |
+| Proveedor en el front del recibo a ciegas | El backend ya lo acepta (§4). Sin él, un producto comprado a dos proveedores y recibido a ciegas no se puede medir en Cumplimiento. |
+| Costo en la compra | Casi todas las compras quedan con costo pendiente; Cumplimiento pondera con el último costo de SIESA. |
 
 **Limpieza opcional:** las tablas del pedido con QR de la primera versión (`fruver_sedes`, `fruver_pedidos`, …) ya no se usan. `sql/quitar_pedidos_sede.sql` las borra (revisar antes: borra datos). No toca las tablas nuevas.
 
@@ -179,7 +213,7 @@ Tablas en el Supabase de la intranet (`sql/002_pedidos_enviados.sql`):
 | Pieza | Ubicación |
 |---|---|
 | Backend | `BACKEND/automatizacion-fruver` → GitHub `kevinpineda22/backend-aut-fruver` → Vercel `backend-aut-fruver` |
-| Front | `Pagina-web_React/src/pages/AutomatizacionFruver/` (rama `Johan`): `sugerido/`, `pedidos/`, `seguimiento/`, `asertividad/` |
+| Front | `Pagina-web_React/src/pages/AutomatizacionFruver/` (rama `Johan`): `sugerido/`, `pedidos/`, `seguimiento/`, `asertividad/`, `cumplimiento/` |
 | Pedidos enviados | Supabase de la intranet, `fruver_envios` y `fruver_envio_lineas` |
 | Ventas y compras | Réplica de SIESA en Postgres (`merkahorro_siesa`), solo lectura |
 | Inventario | SIESA en vivo, consulta estándar `API_v2_Inventarios_InvFecha` |

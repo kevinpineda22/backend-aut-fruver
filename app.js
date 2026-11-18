@@ -26,6 +26,7 @@ import { pool, postgresConfigurado } from "./src/config/db.js";
 import { respuestaError } from "./src/http.js";
 import { crearSupabaseAdmin } from "./src/config/supabaseAdmin.js";
 import { manejadorAsertividad } from "./src/asertividad/rutas.js";
+import { manejadorCumplimiento } from "./src/cumplimiento/rutas.js";
 import { rutasEnvio, rutasSeguimiento } from "./src/envios/rutas.js";
 import { manejadorCompra, manejadorSugerido } from "./src/pedidos/rutas.js";
 import { crearClienteInventario } from "./src/siesa/inventario.js";
@@ -45,6 +46,7 @@ export const RUTAS = {
   compra: `${RUTA_MODULO}/pedidos`,
   seguimiento: `${RUTA_MODULO}/seguimiento`,
   asertividad: `${RUTA_MODULO}/asertividad`,
+  cumplimiento: `${RUTA_MODULO}/cumplimiento`,
   proveedores: `${RUTA_MODULO}/proveedores`,
   precios: `${RUTA_MODULO}/precios`,
   recibo: `${RUTA_MODULO}/recibo`,
@@ -140,6 +142,12 @@ app.use("/api/fruver/seguimiento", acceso(RUTAS.seguimiento), rutasSeguimiento({
 
 // Asertividad: ¿cuánto se equivocó la venta esperada contra lo vendido?
 app.get("/api/fruver/asertividad", acceso(RUTAS.asertividad), manejadorAsertividad({ pool }));
+
+// Cumplimiento: ¿cuánto de lo que se le compró a cada proveedor llegó? Son
+// compras, costos y nombres de proveedores: siempre con sesión y permiso, como Operaciones.
+app.get("/api/fruver/cumplimiento",
+  requiereModulo(RUTAS.cumplimiento, { modo: "enforce", resolverAcceso }),
+  manejadorCumplimiento({ supabase, pool }));
 
 // Precios: etiquetas de góndola con el precio vigente de SIESA y la ubicación en la tienda.
 app.use("/api/fruver/precios", acceso(RUTAS.precios), rutasPrecios({ precios, pool, supabase }));
