@@ -5,9 +5,9 @@ import { enviosEntre } from "../envios/servicio.js";
 import { aplicarEnvios } from "../envios/reglas.js";
 import { calcularSugerido } from "../pedidos/servicio.js";
 import { leerNit } from "../proveedores/reglas.js";
-import { alertasEstado, aplicarAccion, aplicarCompras, baseDeCompra, leerAccion, leerEntrega, productoProveedor } from "./reglas.js";
+import { alertasEstado, aplicarAccion, aplicarCompras, aplicarReciboCiego, baseDeCompra, leerAccion, leerEntrega, productoProveedor, vistaRecibo } from "./reglas.js";
 
-const permisos = { abrir: "compra", pedidos: "compra", compra: "compra", compras: "compra", costo: "compra", recibo: "recibo", despacho: "despacho" };
+const permisos = { abrir: "compra", pedidos: "compra", compra: "compra", compras: "compra", costo: "compra", recibo: "recibo", recibo_ciego: "recibo", despacho: "despacho" };
 const permisoAccion = (a) => a.tipo === "ajuste"
   ? ({ compras: "compra", recibos: "recibo", despachos: "despacho" })[a.coleccion] : permisos[a.tipo];
 const tabla = "fruver_operaciones";
@@ -28,6 +28,9 @@ export function rutasOperaciones({ supabase, pool, inventario, calcular = calcul
     const entrega = leerEntrega(req.query.entrega);
     const filas = await supabase.select(tabla, { select: "*", fecha_entrega: `eq.${entrega}` });
     const operacion = filas[0] || null;
+    if (req.fruverSeccion === "recibo") {
+      return res.json({ ok: true, data: operacion ? { version: operacion.version, estado: vistaRecibo(operacion.estado) } : null });
+    }
     res.json({ ok: true, data: operacion ? { ...operacion, alertas: alertasEstado(operacion.estado) } : null });
   }));
   router.get("/proveedores", manejar(async (req, res) => {
@@ -67,12 +70,16 @@ export function rutasOperaciones({ supabase, pool, inventario, calcular = calcul
     const solicitud = { ...accion, entrega };
     // Reintentar una respuesta perdida no vuelve a sumar cantidades.
     const previos = await supabase.select("fruver_operacion_eventos", {
-      select: "solicitud", id: `eq.${accion.solicitud}`,
+      select: "solicitud,evento", id: `eq.${accion.solicitud}`,
     });
     if (previos.length) {
       const mismas = isDeepStrictEqual(solicitud, previos[0].solicitud);
       if (!mismas) throw new ErrorPublico("El identificador ya corresponde a otra solicitud.", 409);
-      return res.json({ ok: true, data: { guardado: true, repetido: true } });
+      if (accion.tipo === "recibo_ciego" && !Array.isArray(previos[0].evento?.resumen)) {
+        throw new ErrorPublico("El recibo está guardado, pero no se pudo recuperar su resumen. Consulte Seguimiento.", 409);
+      }
+      return res.json({ ok: true, data: { guardado: true, repetido: true,
+        ...(accion.tipo === "recibo_ciego" && { resumen: previos[0].evento.resumen }) } });
     }
     const filas = await supabase.select(tabla, { select: "*", fecha_entrega: `eq.${entrega}` });
     const actual = filas[0];
@@ -111,6 +118,9 @@ export function rutasOperaciones({ supabase, pool, inventario, calcular = calcul
         lote.forEach((nit, indice) => proveedores.set(nit, fichas[indice]));
       }
       ({ estado, evento } = aplicarCompras(actual.estado, accion.lineas, proveedores));
+    } else if (accion.tipo === "recibo_ciego") {
+      if (!actual) throw new ErrorPublico("Compras debe abrir la operación para esta entrega.", 409);
+      ({ estado, evento } = aplicarReciboCiego(actual.estado, accion.lineas));
     } else {
       if (!actual) throw new ErrorPublico("Compras debe abrir la operación para esta entrega.", 409);
       const proveedor = accion.tipo === "compra"
@@ -121,9 +131,10 @@ export function rutasOperaciones({ supabase, pool, inventario, calcular = calcul
       p_entrega: entrega, p_version: accion.version, p_estado: estado,
       p_solicitud: solicitud, p_evento: { ...evento, tipo: accion.tipo, usuario: req.usuario.email, usuario_id: req.usuario.userId || null },
     });
-    res.status(201).json({ ok: true, data });
+    res.status(201).json({ ok: true, data: accion.tipo === "recibo_ciego" ? { guardado: true, resumen: evento.resumen } : data });
   }));
   router.get("/historial", manejar(async (req, res) => {
+    if (req.fruverSeccion === "recibo") throw new ErrorPublico("El historial completo se consulta en Seguimiento.", 403);
     const entrega = leerEntrega(req.query.entrega);
     const pagina = Number(req.query.pagina || 1);
     if (!Number.isSafeInteger(pagina) || pagina < 1 || pagina > 100000) throw new ErrorPublico("La página no es válida.", 400);
