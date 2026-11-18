@@ -18,6 +18,14 @@
    La merma es la parte de lo comprado que no se vendió (se dañó, se botó) y sale
    de comparar compras contra ventas del mismo producto. Para vender 100 kg con
    10 % de merma hay que comprar 111 kg, no 110.
+
+   AJUSTE POR QUINCENA (2026-11-18). Fruver vende +20–33 % los días siguientes
+   al pago (15 y 30) y ~25 % menos a mitad de quincena. La media de 6 semanas
+   mezcla las dos fases y se equivoca para los dos lados (±30 % de sesgo
+   diario). Por eso cada día de la historia se lleva a "normal" dividiéndolo por
+   el índice de su fase, se promedia igual, y se multiplica por el índice de la
+   fase del día que se pronostica. Medido en 16 semanas sin fuga: error del
+   consolidado semanal 20,6 % → 14,8 %; sesgo −5,2 % → −2,0 %.
    ============================================================================= */
 
 export const SEMANAS_HISTORIA = 6;
@@ -74,9 +82,78 @@ export function mediaRecortada(valores) {
   return usados.reduce((suma, v) => suma + v, 0) / usados.length;
 }
 
-/** Venta esperada en `fecha`. Un día abierto sin ventas del producto cuenta como 0. */
-export function ventaEsperada(ventasPorFecha, fechas) {
-  return mediaRecortada(fechas.map((f) => Number(ventasPorFecha.get(f) || 0)));
+/**
+ * Venta esperada en `fecha`. Un día abierto sin ventas del producto cuenta como 0.
+ * Con `indice` (fase de quincena → factor), cada día de la historia se divide por
+ * el factor de su fase y el promedio se multiplica por el de `fecha`.
+ */
+export function ventaEsperada(ventasPorFecha, fechas, indice = null, fecha = null) {
+  const factor = (f) => (indice && f ? indice.get(faseQuincena(f)) ?? 1 : 1);
+  return mediaRecortada(fechas.map((f) => Number(ventasPorFecha.get(f) || 0) / factor(f))) * factor(fecha);
+}
+
+/* ---------------------------------------------------------------------------
+   Quincena
+   --------------------------------------------------------------------------- */
+
+/** Apagado = la fórmula de antes, sin índice. */
+export const AJUSTE_QUINCENA = true;
+/** Días de venta con que se aprende el índice (12 semanas: ~6 quincenas). */
+export const DIAS_ENTRENO_QUINCENA = 84;
+/** Una fase con menos observaciones (sede×día) que esto no se ajusta: factor 1. */
+export const MINIMO_FASE_QUINCENA = 7;
+
+/**
+ * Días desde el último pago: el 15 y el 30 (o el último día de un mes más
+ * corto). 0 = día de pago … 15 = víspera del siguiente.
+ */
+export function faseQuincena(fecha) {
+  const [y, m, d] = fecha.split("-").map(Number);
+  const pagoFinMes = Math.min(30, new Date(Date.UTC(y, m, 0)).getUTCDate());
+  if (d >= pagoFinMes) return d - pagoFinMes;
+  if (d >= 15) return d - 15;
+  const ultimoAnterior = new Date(Date.UTC(y, m - 1, 0)).getUTCDate();
+  return Math.min(15, d + ultimoAnterior - Math.min(30, ultimoAnterior));
+}
+
+const diaSemana = (fecha) => new Date(`${fecha}T00:00:00Z`).getUTCDay();
+
+/**
+ * Índice de quincena (fase → factor), aprendido de la venta diaria de fruver
+ * en plata de todas las sedes. Para cada sede y día: venta del día ÷ venta
+ * promedio de ese día de la semana en la ventana (así se quita el efecto del
+ * jueves). El factor de una fase es el promedio de esos cocientes.
+ *
+ * @param {Array} totales  { fecha, bodega, ventas } — sin el acopio
+ * @param {Map}   abiertasPorSede  bodega → Set de fechas abiertas
+ */
+export function indiceQuincena(totales, abiertasPorSede) {
+  const porSede = new Map();
+  for (const t of totales) {
+    const ventas = Number(t.ventas) || 0;
+    if (ventas <= 0 || !abiertasPorSede.get(t.bodega)?.has(t.fecha)) continue;
+    if (!porSede.has(t.bodega)) porSede.set(t.bodega, []);
+    porSede.get(t.bodega).push({ fecha: t.fecha, ventas });
+  }
+  const fases = new Map();
+  for (const dias of porSede.values()) {
+    const porDia = new Map();
+    for (const { fecha, ventas } of dias) {
+      const d = diaSemana(fecha);
+      const [suma, n] = porDia.get(d) || [0, 0];
+      porDia.set(d, [suma + ventas, n + 1]);
+    }
+    for (const { fecha, ventas } of dias) {
+      const [suma, n] = porDia.get(diaSemana(fecha));
+      const fase = faseQuincena(fecha);
+      const [s, k] = fases.get(fase) || [0, 0];
+      fases.set(fase, [s + ventas / (suma / n), k + 1]);
+    }
+  }
+  return new Map([...fases]
+    .filter(([, [, k]]) => k >= MINIMO_FASE_QUINCENA)
+    .map(([fase, [s, k]]) => [fase, s / k])
+    .sort((a, b) => a[0] - b[0]));
 }
 
 /**

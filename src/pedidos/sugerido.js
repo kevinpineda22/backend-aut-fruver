@@ -5,8 +5,8 @@
 
 import { ACOPIO, nombreSede, ordenarSedes } from "../sedes.js";
 import {
-  calcularLinea, calcularMerma, fechasComparables, fraccionRestante, redondear,
-  seArmaEnTienda, ventaEsperada, ventanas,
+  AJUSTE_QUINCENA, calcularLinea, calcularMerma, faseQuincena, fechasComparables, fraccionRestante,
+  indiceQuincena, redondear, seArmaEnTienda, ventaEsperada, ventanas,
 } from "./reglas.js";
 
 const un = (valor) => Math.round((Number(valor) || 0) * 10) / 10;
@@ -35,15 +35,20 @@ function agrupar(filas, clave, valor) {
  * @param {Array}  p.compras       { item, comprado, ultimo_precio }
  * @param {Array}  p.maestro       { item, um }
  * @param {{ porItem: Map, fallidos: Set, consultadoEn: string }} p.inventario
+ * @param {Array}  [p.ventaDiaria] { fecha, bodega, ventas } en plata, para el índice
+ *                                 de quincena. Sin esto, no hay ajuste.
  */
 export function armarSugerido({
   hoy, hora, entrega, dias, ultimoDato, mermaDesde,
-  ventas, abiertas, perfiles, compras, maestro, inventario,
+  ventas, abiertas, perfiles, compras, maestro, inventario, ventaDiaria = null,
 }) {
   const sedes = ordenarSedes(ventas.map((v) => v.bodega).filter((b) => b !== ACOPIO.codigo));
   const abiertasPorSede = new Map(
     [...agrupar(abiertas, (a) => a.bodega, (a) => a.fecha)].map(([b, fechas]) => [b, new Set(fechas)]),
   );
+  const indice = AJUSTE_QUINCENA && ventaDiaria?.length
+    ? indiceQuincena(ventaDiaria.filter((t) => t.bodega !== ACOPIO.codigo), abiertasPorSede)
+    : null;
   const perfilPorSede = new Map(
     [...agrupar(perfiles, (p) => p.bodega, (p) => [Number(p.hora), Number(p.ventas)])].map(([b, horas]) => [b, new Map(horas)]),
   );
@@ -81,7 +86,7 @@ export function armarSugerido({
       const hist = historia.get(`${sede}|${item}`);
       if (!hist) continue;
       const abiertasSede = abiertasPorSede.get(sede) || new Set();
-      const esperada = (fecha) => ventaEsperada(hist, fechasComparables(fecha, abiertasSede, ultimoDato));
+      const esperada = (fecha) => ventaEsperada(hist, fechasComparables(fecha, abiertasSede, ultimoDato), indice, fecha);
       const pendienteHoy = esperada(hoy) * (fraccionHoy.get(sede) || 0);
       const antesDeEntrega = antes.reduce((s, f) => s + esperada(f), 0);
       const ventaCobertura = cobertura.reduce((s, f) => s + esperada(f), 0);
@@ -134,7 +139,14 @@ export function armarSugerido({
     || a.descripcion.localeCompare(b.descripcion));
 
   return {
-    parametros: { hoy, hora: Math.round(hora * 100) / 100, entrega, dias, ultimoDato, cobertura, antesDeEntrega: antes },
+    parametros: {
+      hoy, hora: Math.round(hora * 100) / 100, entrega, dias, ultimoDato, cobertura, antesDeEntrega: antes,
+      // Factor de quincena de cada día que entra en el pedido (1 = sin ajuste).
+      quincena: indice && {
+        indice: Object.fromEntries([...indice].map(([fase, f]) => [fase, Math.round(f * 1000) / 1000])),
+        dias: Object.fromEntries([hoy, ...antes, ...cobertura].map((f) => [f, Math.round((indice.get(faseQuincena(f)) ?? 1) * 1000) / 1000])),
+      },
+    },
     acopio: ACOPIO,
     sedes: sedes.map((codigo) => ({ codigo, nombre: nombreSede(codigo) })),
     items,

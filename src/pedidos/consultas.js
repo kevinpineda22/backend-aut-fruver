@@ -66,6 +66,18 @@ export function desplegarVentas(filas, desde) {
   })));
 }
 
+/** Venta de fruver en plata por día y sede: con esto se aprende el índice de quincena. */
+export async function consultarVentaDiariaFruver(pool, { desde, hasta }) {
+  const { rows } = await pool.query(
+    `SELECT fecha::text AS fecha, bodega, SUM(ventas)::float8 AS ventas
+       FROM ${S}.ventas_pdv_resumen_item_diario
+      WHERE grupo = $3 AND fecha >= $1::date AND fecha <= $2::date
+      GROUP BY 1, 2`,
+    [desde, hasta, GRUPO_FRUVER],
+  );
+  return rows;
+}
+
 /** Días en que cada sede vendió algo (abrió). */
 export async function consultarDiasAbiertos(pool, { desde, hasta }) {
   const { rows } = await pool.query(

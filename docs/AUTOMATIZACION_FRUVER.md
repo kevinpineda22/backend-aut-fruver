@@ -83,7 +83,7 @@ Fruver = grupo `40-LEGUMBRE` de SIESA. Para cada sede y cada producto:
 | 1 | Inventario hoy | Disponible en SIESA en este momento. |
 | 2 | Se vende antes de recibir | Lo que falta vender hoy (según cómo vende la sede hora por hora) + la venta esperada de los días antes de la entrega. |
 | 3 | Quedan al recibir | Inventario hoy − se vende antes de recibir. Nunca menos de 0. |
-| 4 | Venta esperada | Promedio de lo vendido el **mismo día de la semana** en las últimas 6 semanas en que la sede abrió, sin el día más alto ni el más bajo. Se suma por cada día que cubre el pedido. |
+| 4 | Venta esperada | Promedio de lo vendido el **mismo día de la semana** en las últimas 6 semanas en que la sede abrió, sin el día más alto ni el más bajo, **ajustado por la quincena** (ver abajo). Se suma por cada día que cubre el pedido. |
 | 5 | Merma | (comprado − vendido) ÷ comprado en los últimos 42 días, con tope de 25 %. |
 | 6 | Hay que tener | Venta esperada ÷ (1 − merma). |
 | 7 | **Sugerido** | Hay que tener − quedan al recibir, nunca negativo. Se redondea hacia arriba desde 0,2. |
@@ -92,6 +92,17 @@ Casos especiales:
 
 - **Se arma en tienda** (paquetes, bandejas): si se vende más de 1,5 veces lo que se compra con ese código, tiene sugerido por sede pero **no suma a la compra**.
 - **Inventario no leído:** el producto sale "Sin dato", nunca en 0. Si falla más del 20 % de los productos, el sistema avisa en vez de calcular.
+
+**Ajuste por quincena (2026-11-18).** Los días siguientes al pago (15 y 30) fruver vende 20–28 % más, y a mitad de quincena ~25 % menos. El promedio de 6 semanas mezclaba las dos fases y se equivocaba para los dos lados. Ahora el sistema aprende ese patrón con las últimas 12 semanas de venta y lo aplica al día que se pronostica.
+
+¿Qué tan fiable es? Medido contra lo vendido en 16 semanas (29 jul → 17 nov 2026), como error ponderado en plata:
+
+| Nivel | Antes | Con quincena | Repetir la semana pasada |
+|---|---|---|---|
+| Sede × producto × día | 41,0 % | 36,8 % | ~60 % |
+| Consolidado × semana (la compra) | 20,6 % | 14,4 % | ~38 % |
+
+Límites: no corrige festivos; empeora la víspera del pago; la venta real subestima la demanda los días de agotado; mide el pronóstico, no el pedido (el inventario histórico por bodega no está en la réplica).
 
 Dónde vive: `src/pedidos/reglas.js` y `src/pedidos/sugerido.js` en el backend; `sugerido/sugeridoVista.js` en el front arma la cuenta que se muestra.
 

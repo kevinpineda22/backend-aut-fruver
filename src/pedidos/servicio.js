@@ -1,9 +1,11 @@
 import { ErrorPublico } from "../http.js";
 import {
   consultarCompras, consultarDiasAbiertos, consultarMaestro, consultarPerfilHorario,
-  consultarUltimoDato, consultarVentas,
+  consultarUltimoDato, consultarVentaDiariaFruver, consultarVentas,
 } from "./consultas.js";
-import { DIAS_MERMA, SEMANAS_HISTORIA, SEMANAS_MARGEN, ahoraColombia, sumarDias } from "./reglas.js";
+import {
+  AJUSTE_QUINCENA, DIAS_ENTRENO_QUINCENA, DIAS_MERMA, SEMANAS_HISTORIA, SEMANAS_MARGEN, ahoraColombia, sumarDias,
+} from "./reglas.js";
 import { armarSugerido } from "./sugerido.js";
 
 /** 1 = lunes … 7 = domingo (como ISODOW de Postgres). */
@@ -41,7 +43,14 @@ export async function calcularSugerido({ pool, inventario, entrega, dias, moment
 
   // SIESA (red, ~6 s) corre mientras se hacen las consultas chicas de la base.
   const pedidoInventario = inventario.consultar(items).catch((error) => error);
-  const abiertas = await consultarDiasAbiertos(pool, { desde, hasta: ayer });
+  // La quincena se aprende con 12 semanas hasta el último dato: los días abiertos
+  // se piden desde ahí (cubre también las 8 semanas de la historia).
+  const quincenaDesde = sumarDias(ultimoDato || ayer, -DIAS_ENTRENO_QUINCENA + 1);
+  const abiertasDesde = AJUSTE_QUINCENA && quincenaDesde < desde ? quincenaDesde : desde;
+  const abiertas = await consultarDiasAbiertos(pool, { desde: abiertasDesde, hasta: ayer });
+  const ventaDiaria = AJUSTE_QUINCENA
+    ? await consultarVentaDiariaFruver(pool, { desde: quincenaDesde, hasta: ultimoDato || ayer })
+    : null;
   const perfiles = await consultarPerfilHorario(pool, { desde: sumarDias(hoy, -28), hasta: ayer, diaIso: diaIso(hoy) });
   const compras = await consultarCompras(pool, { desde: mermaDesde, hasta: ayer, items });
   const maestro = await consultarMaestro(pool);
@@ -54,6 +63,6 @@ export async function calcularSugerido({ pool, inventario, entrega, dias, moment
 
   return armarSugerido({
     hoy, hora, entrega, dias, ultimoDato, mermaDesde,
-    ventas, abiertas, perfiles, compras, maestro, inventario: stock,
+    ventas, abiertas, perfiles, compras, maestro, inventario: stock, ventaDiaria,
   });
 }

@@ -57,10 +57,15 @@ Fruver = grupo `40-LEGUMBRE`. Para cada sede y cada producto:
 3. quedan al recibir         = inventario hoy − se vende antes de recibir        (nunca menos de 0)
 4. venta esperada            = media recortada de lo vendido el MISMO día de la semana
                                en las últimas 6 semanas en que la sede abrió (sin el día más alto
-                               ni el más bajo), sumada para los días que cubre el pedido
+                               ni el más bajo), AJUSTADA POR QUINCENA, sumada para los días que
+                               cubre el pedido
 5. hay que tener (necesidad) = venta esperada ÷ (1 − merma)
 6. sugerido                  = hay que tener − quedan al recibir                  (redondeo: sube desde ,2)
 ```
+
+**Ajuste por quincena** (`AJUSTE_QUINCENA` en `reglas.js`; `false` = fórmula anterior). Fruver vende +20–28 % los días siguientes al pago (15 y 30) y ~25 % menos a mitad de quincena; la media de 6 semanas mezclaba las dos fases. Fase = días desde el último pago (0–15). El índice de cada fase se aprende con 84 días de venta de fruver en plata de todas las sedes (`consultarVentaDiariaFruver`): venta del día ÷ venta promedio de ese día de la semana en la sede, promediado por fase; una fase con menos de 7 observaciones vale 1. Cada día de la historia se divide por el índice de su fase y la media recortada se multiplica por el de la fecha pronosticada. La respuesta trae `parametros.quincena` (índice y factor de cada día del pedido); el envío lo guarda en `fruver_envios.parametros`.
+
+Medido sin fuga (16 semanas, 29-jul → 17-nov-2026, índice con datos ≤ T−2): error ponderado en plata del consolidado semanal 20,6 % → 14,4 %; sede×ítem×día 41,0 % → 36,8 %; sesgo −5,2 % → −3,1 %. Empeora en la víspera del pago (fases 13–14) y no resuelve festivos.
 
 Ejemplo (el de `test/pedidos.test.js`): hay 80 kg, faltan vender 50 hoy → quedan 30 al recibir. Se esperan vender 90 kg con 21,7 % de merma → hay que tener 90 ÷ 0,783 = 114,9. Sugerido = 114,9 − 30 = 84,9 → **85 kg**.
 
@@ -71,7 +76,7 @@ Ejemplo (el de `test/pedidos.test.js`): hay 80 kg, faltan vender 50 hoy → qued
 
 Cada sede devuelve los pasos del cálculo (`disponible`, `pendienteHoy`, `antesDeEntrega`, `inventarioAlRecibir`, `ventaEsperada`, `necesidad`, `sugerido`), así la pantalla muestra la cuenta de cada producto sin rehacerla.
 
-Reglas puras en `src/pedidos/reglas.js` y `sugerido.js` (probadas en `test/pedidos.test.js`).
+Reglas puras en `src/pedidos/reglas.js` y `sugerido.js` (probadas en `test/pedidos.test.js` y `test/quincena.test.js`).
 
 ## Fuentes y gotchas
 
