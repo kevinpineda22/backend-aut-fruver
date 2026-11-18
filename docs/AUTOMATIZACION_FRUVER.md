@@ -72,6 +72,20 @@ Cómo se mide:
 - **Igual al sugerido** = de los productos que sugirió el sistema, cuántos se pidieron con la misma cantidad. Lo agregado no entra (no había sugerido que seguir).
 - **Diferencia en plata** = Σ (pedido − sugerido) × último precio de compra. Positiva: se pidió más que lo sugerido. Negativa: menos.
 
+### 2.4 Asertividad
+
+¿Qué tan fiable es el sugerido? Para cada día ya vendido, el sistema recalcula cuánto esperaba vender cada sede de cada producto (con las ventas que había antes de ese día) y lo compara con lo que se vendió.
+
+Filtro: últimas 4, 8, 12 o 16 semanas.
+
+- **Resumen:** error de la compra (todas las sedes, por producto y semana), error por tienda y día, cuántos puntos le gana a «repetir la semana pasada» y cuánto ayuda el ajuste de quincena. El sesgo dice si espera de más o de menos.
+- **Semana a semana:** gráfico y tabla. Si la línea del sistema sube y se queda arriba, algo cambió en la venta.
+- **Según para qué se use:** el mismo pronóstico en cuatro niveles; se equivoca menos cuanto más se agrega.
+- **Día a día:** si esperaba de más o de menos, con la fase de la quincena de cada día.
+- **Por sede, por día de la semana y por producto** (al tocar un producto, cómo le va en cada sede).
+
+Límites que la pantalla dice: mide la venta esperada, no el pedido; un día de agotado la venta es menor que la demanda; es la fórmula de hoy aplicada a días pasados.
+
 ---
 
 ## 3. Cómo se calcula el sugerido
@@ -95,7 +109,7 @@ Casos especiales:
 
 **Ajuste por quincena (2026-11-18).** Los días siguientes al pago (15 y 30) fruver vende 20–28 % más, y a mitad de quincena ~25 % menos. El promedio de 6 semanas mezclaba las dos fases y se equivocaba para los dos lados. Ahora el sistema aprende ese patrón con las últimas 12 semanas de venta y lo aplica al día que se pronostica.
 
-¿Qué tan fiable es? Medido contra lo vendido en 16 semanas (29 jul → 17 nov 2026), como error ponderado en plata:
+¿Qué tan fiable es? **La fuente es la sección Asertividad del panel** (se recalcula con cada venta nueva). Foto del 18 nov 2026, 16 semanas (29 jul → 17 nov), error ponderado en plata:
 
 | Nivel | Antes | Con quincena | Repetir la semana pasada |
 |---|---|---|---|
@@ -127,10 +141,11 @@ Tablas en el Supabase de la intranet (`sql/002_pedidos_enviados.sql`):
 
 | Permiso (asignado en Usuarios) | Qué abre |
 |---|---|
-| Automatización Fruver (todo) — `/automatizacion-fruver` | Las tres secciones. |
+| Automatización Fruver (todo) — `/automatizacion-fruver` | Todas las secciones. |
 | Sugerido por sede (líder) — `/automatizacion-fruver/sugerido` | Ver el sugerido y enviar el pedido. Para los líderes de sede. |
 | Compra consolidada — `/automatizacion-fruver/pedidos` | Compra. |
 | Seguimiento del sugerido — `/automatizacion-fruver/seguimiento` | Seguimiento. |
+| Asertividad del sugerido — `/automatizacion-fruver/asertividad` | Asertividad. |
 
 - El **admin no tiene pase directo**: también hay que asignarle la ruta.
 - Sin usuario identificado no se envía nada, en ningún modo.
@@ -151,7 +166,7 @@ Tablas en el Supabase de la intranet (`sql/002_pedidos_enviados.sql`):
 | Hora de corte | Acordar con compras hasta qué hora pueden enviar las sedes. |
 | Villahermosa (`00201`) | Compra fruver por su cuenta: confirmar con compras si envía pedido. |
 | Festivos | Un festivo no se distingue de un día normal en el cálculo. |
-| Seguimiento contra la venta real | Hoy compara lo pedido con lo sugerido. Falta comparar los dos con lo que se vendió el día de la entrega: ¿quién acertó más? |
+| Líder contra sistema, contra la venta real | Asertividad mide el pronóstico del sistema. Falta comparar lo que PIDIÓ el líder con lo que se vendió: ¿quién acertó más? |
 
 **Limpieza opcional:** las tablas del pedido con QR de la primera versión (`fruver_sedes`, `fruver_pedidos`, …) ya no se usan. `sql/quitar_pedidos_sede.sql` las borra (revisar antes: borra datos). No toca las tablas nuevas.
 
@@ -164,7 +179,7 @@ Tablas en el Supabase de la intranet (`sql/002_pedidos_enviados.sql`):
 | Pieza | Ubicación |
 |---|---|
 | Backend | `BACKEND/automatizacion-fruver` → GitHub `kevinpineda22/backend-aut-fruver` → Vercel `backend-aut-fruver` |
-| Front | `Pagina-web_React/src/pages/AutomatizacionFruver/` (rama `Johan`): `sugerido/`, `pedidos/`, `seguimiento/` |
+| Front | `Pagina-web_React/src/pages/AutomatizacionFruver/` (rama `Johan`): `sugerido/`, `pedidos/`, `seguimiento/`, `asertividad/` |
 | Pedidos enviados | Supabase de la intranet, `fruver_envios` y `fruver_envio_lineas` |
 | Ventas y compras | Réplica de SIESA en Postgres (`merkahorro_siesa`), solo lectura |
 | Inventario | SIESA en vivo, consulta estándar `API_v2_Inventarios_InvFecha` |

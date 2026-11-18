@@ -25,6 +25,7 @@ import { origenesPermitidos, originPermitido } from "./src/config/cors.js";
 import { pool, postgresConfigurado } from "./src/config/db.js";
 import { respuestaError } from "./src/http.js";
 import { crearSupabaseAdmin } from "./src/config/supabaseAdmin.js";
+import { manejadorAsertividad } from "./src/asertividad/rutas.js";
 import { rutasEnvio, rutasSeguimiento } from "./src/envios/rutas.js";
 import { manejadorCompra, manejadorSugerido } from "./src/pedidos/rutas.js";
 import { crearClienteInventario } from "./src/siesa/inventario.js";
@@ -43,6 +44,7 @@ export const RUTAS = {
   sugerido: `${RUTA_MODULO}/sugerido`,
   compra: `${RUTA_MODULO}/pedidos`,
   seguimiento: `${RUTA_MODULO}/seguimiento`,
+  asertividad: `${RUTA_MODULO}/asertividad`,
   proveedores: `${RUTA_MODULO}/proveedores`,
   precios: `${RUTA_MODULO}/precios`,
   recibo: `${RUTA_MODULO}/recibo`,
@@ -135,6 +137,9 @@ app.get("/api/fruver/pedidos/sugerido", acceso(RUTAS.compra), manejadorCompra({ 
 
 // Seguimiento: ¿las sedes pidieron lo sugerido?
 app.use("/api/fruver/seguimiento", acceso(RUTAS.seguimiento), rutasSeguimiento({ supabase }));
+
+// Asertividad: ¿cuánto se equivocó la venta esperada contra lo vendido?
+app.get("/api/fruver/asertividad", acceso(RUTAS.asertividad), manejadorAsertividad({ pool }));
 
 // Precios: etiquetas de góndola con el precio vigente de SIESA y la ubicación en la tienda.
 app.use("/api/fruver/precios", acceso(RUTAS.precios), rutasPrecios({ precios, pool, supabase }));
