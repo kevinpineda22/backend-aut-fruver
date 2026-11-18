@@ -93,6 +93,19 @@ Reglas puras en `src/pedidos/reglas.js` y `sugerido.js` (probadas en `test/pedid
 
 Variantes probadas y descartadas (2026-11-18, backtest de 16 semanas): índice de quincena **por sede** (solo 0,3 pts mejor que el global, con siete índices que estimar) y **corrección del error por fase** sobre la fórmula (0,6 pts peor que el índice).
 
+## Foto diaria del sugerido de compra
+
+`src/fotos/`. El sugerido se calcula en vivo y se pierde; sin guardarlo no se puede comparar lo que el sistema recomendó comprar con lo que se compró (SIESA) y se vendió, ni corregir la fórmula con datos. Tampoco queda el inventario por sede de ese momento (la réplica no lo tiene).
+
+- **Cuándo**: Vercel Cron (`vercel.json`) a las 16:10 y 16:40 Colombia (21:10 y 21:40 UTC), justo después de la publicación. La segunda es respaldo: si la primera guardó, no hace nada (la primera foto del día es la que vale).
+- **Qué**: siempre la entrega de **mañana, 1 día** (serie comparable). Por producto: `comprar` (el sugerido de compra), pedido de las tiendas, acopio, venta esperada, merma, precio, y por sede (`sedes` jsonb) disponible, lo que se vende antes de recibir, inventario al recibir, venta esperada, necesidad y sugerido. Encabezado con parámetros (último dato, cobertura, índice de quincena) y resumen.
+- **Dónde**: `fruver_sugerido_fotos` + `fruver_sugerido_foto_items` (`sql/005_fotos_sugerido.sql`), escrito por `fruver_guardar_foto_sugerido` en una transacción.
+- **Tamaño**: ~178 productos, ~200 KB de JSON por día, 6–7 s.
+- **Ruta**: `GET /api/fruver/cron/foto-sugerido`, solo con `Authorization: Bearer $CRON_SECRET`.
+- **A mano**: `node --env-file=.env scripts/tomar-foto-sugerido.mjs [--seco]` (`--seco` calcula sin escribir; sin él, escribe en el Supabase REAL).
+- Límites: es el sugerido del sistema a las 4 p. m., no lo que compras vio después (los pedidos de las sedes y el inventario cambian en la tarde). Si SIESA falla en las dos corridas, ese día queda sin foto (se ve en los logs de Vercel).
+- Tests: `test/fotos.test.js`.
+
 ## Cumplimiento de proveedores
 
 `src/cumplimiento/`. Nivel de servicio de entrega: compras contra recibos de `fruver_operaciones.estado`. Renglón = (entrega, producto, proveedor); cumplido = min(recibido, comprado); cumplimiento = Σ cumplido·costo ÷ Σ comprado·costo. Lo sobreentregado va aparte (no compensa). Completo = ≥ 98 %.
@@ -118,6 +131,8 @@ Variantes probadas y descartadas (2026-11-18, backtest de 16 semanas): índice d
 Ver `.env.example`. Postgres y Supabase (solo para validar la sesión): los mismos de `backend_analitica`. SIESA: los mismos de `backend-traslado`.
 
 `SUPABASE_SERVICE_ROLE_KEY`: la service role (o secret key) del mismo proyecto. Sin ella, el sugerido funciona, pero enviar responde 503 y Compra sale sin pedidos de sedes (con aviso).
+
+`CRON_SECRET`: secreto de Vercel Cron para la foto diaria del sugerido. Sin él, `/api/fruver/cron/foto-sugerido` responde 503 (cerrada) y no se guarda nada.
 
 `FRUVER_AUTH`: `off` | `report` | `enforce` (vacío = `report`). Pasa quien tiene asignada la ruta de la sección (o `/automatizacion-fruver` entera), personal o por rol, igual que en el front. El admin NO tiene pase directo: también hay que asignársela.
 

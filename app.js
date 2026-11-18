@@ -27,6 +27,7 @@ import { respuestaError } from "./src/http.js";
 import { crearSupabaseAdmin } from "./src/config/supabaseAdmin.js";
 import { manejadorAsertividad } from "./src/asertividad/rutas.js";
 import { manejadorCumplimiento } from "./src/cumplimiento/rutas.js";
+import { cronAutorizado, manejadorFotoSugerido } from "./src/fotos/rutas.js";
 import { rutasEnvio, rutasSeguimiento } from "./src/envios/rutas.js";
 import { manejadorCompra, manejadorSugerido } from "./src/pedidos/rutas.js";
 import { crearClienteInventario } from "./src/siesa/inventario.js";
@@ -148,6 +149,10 @@ app.get("/api/fruver/asertividad", acceso(RUTAS.asertividad), manejadorAsertivid
 app.get("/api/fruver/cumplimiento",
   requiereModulo(RUTAS.cumplimiento, { modo: "enforce", resolverAcceso }),
   manejadorCumplimiento({ supabase, pool }));
+
+// Foto diaria del sugerido de compra (Vercel Cron, vercel.json). Sin usuario:
+// la protege CRON_SECRET. Guarda lo que el sistema recomendó comprar y con qué datos.
+app.get("/api/fruver/cron/foto-sugerido", cronAutorizado(), manejadorFotoSugerido({ pool, inventario, supabase }));
 
 // Precios: etiquetas de góndola con el precio vigente de SIESA y la ubicación en la tienda.
 app.use("/api/fruver/precios", acceso(RUTAS.precios), rutasPrecios({ precios, pool, supabase }));

@@ -152,6 +152,8 @@ Tablas en el Supabase de la intranet (`sql/002_pedidos_enviados.sql`):
 - Una sede envía **una vez** por fecha de entrega.
 - RLS sin políticas: solo el backend, con la clave secreta, lee y escribe.
 
+**Foto diaria del sugerido de compra (2026-11-18, `sql/005_fotos_sugerido.sql`).** Todos los días, poco después de la publicación de las 4:00 p. m., el sistema guarda el sugerido de compra de la entrega de mañana (1 día): por producto, cuánto recomendó comprar y con qué datos (venta esperada, merma, inventario del acopio y de cada sede). Tablas `fruver_sugerido_fotos` y `fruver_sugerido_foto_items`. Es la base para medir **sugerido contra comprado contra vendido** y para pulir la fórmula. Una foto por día; la primera vale.
+
 **Recibo a ciegas con proveedor (2026-11-18, compatible hacia atrás).** `POST /api/fruver/operaciones/recibo` con `tipo: "recibo_ciego"` acepta en cada línea un `nit` **opcional**:
 
 ```json
@@ -199,6 +201,8 @@ Tablas en el Supabase de la intranet (`sql/002_pedidos_enviados.sql`):
 | Villahermosa (`00201`) | Compra fruver por su cuenta: confirmar con compras si envía pedido. |
 | Festivos | Un festivo no se distingue de un día normal en el cálculo. |
 | Líder contra sistema, contra la venta real | Asertividad mide el pronóstico del sistema. Falta comparar lo que PIDIÓ el líder con lo que se vendió: ¿quién acertó más? |
+| Correr `sql/005_fotos_sugerido.sql` y poner `CRON_SECRET` en Vercel | Sin las dos, la foto diaria del sugerido no se guarda. Cada día sin foto es un dato perdido para siempre. |
+| Sección "Sugerido contra comprado" | Con unas semanas de fotos: lo que recomendó el sistema contra la compra real de SIESA y la venta real, por producto. |
 | Proveedor en el front del recibo a ciegas | El backend ya lo acepta (§4). Sin él, un producto comprado a dos proveedores y recibido a ciegas no se puede medir en Cumplimiento. |
 | Costo en la compra | Casi todas las compras quedan con costo pendiente; Cumplimiento pondera con el último costo de SIESA. |
 

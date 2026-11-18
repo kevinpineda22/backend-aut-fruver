@@ -1,0 +1,6 @@
+{
+  "crons": [
+    { "path": "/api/fruver/cron/foto-sugerido", "schedule": "10 21 * * *" },
+    { "path": "/api/fruver/cron/foto-sugerido", "schedule": "40 21 * * *" }
+  ]
+}
