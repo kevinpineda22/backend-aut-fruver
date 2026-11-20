@@ -5,9 +5,9 @@ import { enviosEntre } from "../envios/servicio.js";
 import { aplicarEnvios } from "../envios/reglas.js";
 import { calcularSugerido } from "../pedidos/servicio.js";
 import { leerNit } from "../proveedores/reglas.js";
-import { alertasEstado, aplicarAccion, aplicarCompras, aplicarReciboCiego, baseDeCompra, leerAccion, leerEntrega, productoProveedor, vistaRecibo } from "./reglas.js";
+import { alertasEstado, aplicarAccion, aplicarCompras, aplicarDespachos, aplicarReciboCiego, baseDeCompra, leerAccion, leerEntrega, productoProveedor, reporteDespacho, vistaRecibo } from "./reglas.js";
 
-const permisos = { abrir: "compra", pedidos: "compra", compra: "compra", compras: "compra", costo: "compra", recibo: "recibo", recibo_ciego: "recibo", despacho: "despacho" };
+const permisos = { abrir: "compra", pedidos: "compra", compra: "compra", compras: "compra", costo: "compra", recibo: "recibo", recibo_ciego: "recibo", despacho: "despacho", despachos: "despacho" };
 const permisoAccion = (a) => a.tipo === "ajuste"
   ? ({ compras: "compra", recibos: "recibo", despachos: "despacho" })[a.coleccion] : permisos[a.tipo];
 const tabla = "fruver_operaciones";
@@ -31,7 +31,8 @@ export function rutasOperaciones({ supabase, pool, inventario, calcular = calcul
     if (req.fruverSeccion === "recibo") {
       return res.json({ ok: true, data: operacion ? { version: operacion.version, estado: vistaRecibo(operacion.estado) } : null });
     }
-    res.json({ ok: true, data: operacion ? { ...operacion, alertas: alertasEstado(operacion.estado) } : null });
+    res.json({ ok: true, data: operacion ? { ...operacion, alertas: alertasEstado(operacion.estado),
+      ...(req.fruverSeccion === "despacho" && { reporteDespacho: reporteDespacho(operacion.estado) }) } : null });
   }));
   router.get("/proveedores", manejar(async (req, res) => {
     if (req.fruverSeccion !== "compra") throw new ErrorPublico("No tiene permiso para consultar portafolios.", 403);
@@ -78,8 +79,12 @@ export function rutasOperaciones({ supabase, pool, inventario, calcular = calcul
       if (accion.tipo === "recibo_ciego" && !Array.isArray(previos[0].evento?.resumen)) {
         throw new ErrorPublico("El recibo está guardado, pero no se pudo recuperar su resumen. Consulte Seguimiento.", 409);
       }
+      if (accion.tipo === "despachos" && !Array.isArray(previos[0].evento?.reporteDespacho)) {
+        throw new ErrorPublico("El despacho está guardado, pero no se pudo recuperar su reporte. Consulte Seguimiento.", 409);
+      }
       return res.json({ ok: true, data: { guardado: true, repetido: true,
-        ...(accion.tipo === "recibo_ciego" && { resumen: previos[0].evento.resumen }) } });
+        ...(accion.tipo === "recibo_ciego" && { resumen: previos[0].evento.resumen }),
+        ...(accion.tipo === "despachos" && { reporteDespacho: previos[0].evento.reporteDespacho, siesaEstado: "pendiente_conector" }) } });
     }
     const filas = await supabase.select(tabla, { select: "*", fecha_entrega: `eq.${entrega}` });
     const actual = filas[0];
@@ -118,9 +123,12 @@ export function rutasOperaciones({ supabase, pool, inventario, calcular = calcul
         lote.forEach((nit, indice) => proveedores.set(nit, fichas[indice]));
       }
       ({ estado, evento } = aplicarCompras(actual.estado, accion.lineas, proveedores));
+    } else if (accion.tipo === "despachos") {
+      if (!actual) throw new ErrorPublico("Compras debe abrir la operación para esta entrega.", 409);
+      ({ estado, evento } = aplicarDespachos(actual.estado, accion));
     } else if (accion.tipo === "recibo_ciego") {
       if (!actual) throw new ErrorPublico("Compras debe abrir la operación para esta entrega.", 409);
-      ({ estado, evento } = aplicarReciboCiego(actual.estado, accion.lineas));
+      ({ estado, evento } = aplicarReciboCiego(actual.estado, accion.lineas, accion.nit));
     } else {
       if (!actual) throw new ErrorPublico("Compras debe abrir la operación para esta entrega.", 409);
       const proveedor = accion.tipo === "compra"
@@ -131,7 +139,9 @@ export function rutasOperaciones({ supabase, pool, inventario, calcular = calcul
       p_entrega: entrega, p_version: accion.version, p_estado: estado,
       p_solicitud: solicitud, p_evento: { ...evento, tipo: accion.tipo, usuario: req.usuario.email, usuario_id: req.usuario.userId || null },
     });
-    res.status(201).json({ ok: true, data: accion.tipo === "recibo_ciego" ? { guardado: true, resumen: evento.resumen } : data });
+    const resultado = accion.tipo === "recibo_ciego" ? { guardado: true, resumen: evento.resumen }
+      : accion.tipo === "despachos" ? { guardado: true, reporteDespacho: evento.reporteDespacho, siesaEstado: "pendiente_conector" } : data;
+    res.status(201).json({ ok: true, data: resultado });
   }));
   router.get("/historial", manejar(async (req, res) => {
     if (req.fruverSeccion === "recibo") throw new ErrorPublico("El historial completo se consulta en Seguimiento.", 403);

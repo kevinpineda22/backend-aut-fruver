@@ -3,6 +3,11 @@ import { ErrorPublico, fechaValida } from "../http.js";
 export const redondear = (n) => Math.round((n + Number.EPSILON) * 1000) / 1000;
 const uuid = (v) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 const fallar = (mensaje, status = 400) => { throw new ErrorPublico(mensaje, status); };
+const motivosCompra = new Set([
+  "Stock de seguridad",
+  "Producto agotado",
+  "Inventario fantasma en el acopio PV009: las existencias registradas no están disponibles físicamente.",
+]);
 
 export function leerEntrega(valor) {
   if (typeof valor !== "string" || !fechaValida(valor)
@@ -14,8 +19,25 @@ export function leerAccion(body) {
   if (!body || !uuid(body.solicitud) || !Number.isSafeInteger(body.version) || body.version < 0) {
     fallar("Recargue la operación: faltan su identificador o versión.");
   }
-  if (!["abrir", "pedidos", "compra", "compras", "recibo", "recibo_ciego", "despacho", "ajuste", "costo"].includes(body.tipo)) fallar("La operación no es válida.");
+  if (!["abrir", "pedidos", "compra", "compras", "recibo", "recibo_ciego", "despacho", "despachos", "ajuste", "costo"].includes(body.tipo)) fallar("La operación no es válida.");
   const a = { solicitud: body.solicitud, version: body.version, tipo: body.tipo };
+  if (a.tipo === "despachos") {
+    if (typeof body.bodega !== "string" || !body.bodega.trim() || body.bodega.length > 100) fallar("Seleccione una sede válida.");
+    if (body.motivo != null && (typeof body.motivo !== "string" || body.motivo.length > 2000)) fallar("El motivo no es válido.");
+    if (!Array.isArray(body.lineas) || !body.lineas.length || body.lineas.length > 500) fallar("Ingrese entre 1 y 500 productos para despachar.");
+    a.bodega = body.bodega.trim();
+    a.motivo = body.motivo?.trim() || "";
+    a.lineas = body.lineas.map((linea) => {
+      const l = leerAccion({ ...linea, tipo: "despacho", version: a.version });
+      if (!l.item) fallar("Seleccione el producto a despachar.");
+      return { solicitud: l.solicitud, item: l.item, cantidad: l.cantidad };
+    });
+    if (new Set(a.lineas.map((l) => l.item)).size !== a.lineas.length
+      || new Set([a.solicitud, ...a.lineas.map((l) => l.solicitud)]).size !== a.lineas.length + 1) {
+      fallar("Hay productos o identificadores repetidos en el despacho.");
+    }
+    return a;
+  }
   if (a.tipo === "compras") {
     if (!Array.isArray(body.lineas) || !body.lineas.length || body.lineas.length > 500) fallar("Seleccione entre 1 y 500 asignaciones a proveedores para comprar.");
     a.lineas = body.lineas.map((linea) => {
@@ -30,15 +52,15 @@ export function leerAccion(body) {
     return a;
   }
   if (a.tipo === "recibo_ciego") {
+    if (typeof body.nit !== "string" || !body.nit.trim() || body.nit.length > 100) fallar("Seleccione el proveedor del recibo.");
+    a.nit = body.nit.trim();
     if (!Array.isArray(body.lineas) || !body.lineas.length || body.lineas.length > 500) fallar("Agregue entre 1 y 500 productos al recibo.");
     a.lineas = body.lineas.map((linea) => {
       const l = leerAccion({ ...linea, tipo: "recibo", version: a.version });
       if (!l.item) fallar("Seleccione el producto que está recibiendo.");
-      // El proveedor que entrega es OPCIONAL (el front de recibo que no lo manda
-      // sigue funcionando). Con él se mide cuánto cumplió cada proveedor.
-      return { solicitud: l.solicitud, item: l.item, cantidad: l.cantidad, ...(l.nit && { nit: l.nit }) };
+      return { solicitud: l.solicitud, item: l.item, cantidad: l.cantidad };
     });
-    if (new Set(a.lineas.map((l) => `${l.item}|${l.nit || ""}`)).size !== a.lineas.length
+    if (new Set(a.lineas.map((l) => l.item)).size !== a.lineas.length
       || new Set([a.solicitud, ...a.lineas.map((l) => l.solicitud)]).size !== a.lineas.length + 1) {
       fallar("Hay productos o identificadores repetidos en el recibo.");
     }
@@ -50,7 +72,7 @@ export function leerAccion(body) {
   }
   if (["compra", "recibo", "despacho", "ajuste"].includes(a.tipo)) {
     if (typeof body.cantidad !== "number" || !Number.isFinite(body.cantidad)
-      || body.cantidad < (a.tipo === "ajuste" ? 0 : 0.001) || body.cantidad > 1e9
+      || body.cantidad < (a.tipo === "ajuste" || (a.tipo === "compra" && a.motivo === "Producto agotado") ? 0 : 0.001) || body.cantidad > 1e9
       || Math.abs(redondear(body.cantidad) - body.cantidad) > 1e-8) fallar("Ingrese una cantidad válida, con máximo tres decimales.");
     a.cantidad = body.cantidad;
   }
@@ -86,53 +108,90 @@ function itemRecibo(estado, recibo) {
   return item;
 }
 
-/** Proveedores a los que se les compró el producto (sin cantidades: el recibo es a ciegas). */
-export function proveedoresDe(estado, item) {
-  const vistos = new Map();
-  for (const c of estado.compras) {
-    if (c.item === item && c.cantidad > 0 && !vistos.has(c.nit)) vistos.set(c.nit, { nit: c.nit, nombre: c.proveedor || c.nit });
-  }
-  return [...vistos.values()];
-}
-
 export function vistaRecibo(estado) {
+  const proveedores = new Map();
+  for (const c of estado.compras.filter((c) => c.cantidad > 0)) {
+    if (!proveedores.has(c.nit)) proveedores.set(c.nit, { nit: c.nit, nombre: c.proveedor, items: [] });
+    const proveedor = proveedores.get(c.nit);
+    if (!proveedor.items.includes(c.item)) proveedor.items.push(c.item);
+  }
   return {
+    proveedores: [...proveedores.values()],
     base: { items: estado.base.items.filter((p) => estado.compras.some((c) => c.item === p.item && c.cantidad > 0))
-      .map(({ item, descripcion, um }) => ({ item, descripcion, um, proveedores: proveedoresDe(estado, item) })) },
-    recibos: estado.recibos.map((r) => ({
-      id: r.id, item: itemRecibo(estado, r), cantidad: r.cantidad,
-      ...((r.nit || r.compraId) && { nit: r.nit || estado.compras.find((c) => c.id === r.compraId)?.nit }),
-    })),
+      .map(({ item, descripcion, um }) => ({ item, descripcion, um })) },
+    recibos: estado.recibos.map((r) => ({ id: r.id, item: itemRecibo(estado, r), cantidad: r.cantidad })),
   };
 }
 
-export function resumenRecibo(estado, lineas = []) {
+export function resumenRecibo(estado, lineas = [], nit = null) {
+  const proveedor = nit === null ? null : estado.compras.find((c) => c.nit === nit)?.proveedor;
+  const reciboDelProveedor = (r) => r.nit === nit
+    || (r.compraId && estado.compras.some((c) => c.id === r.compraId && c.nit === nit));
   return estado.base.items.map((p) => {
-    const comprado = suma(estado.compras, (c) => c.item === p.item);
-    const recibido = suma(estado.recibos, (r) => itemRecibo(estado, r) === p.item);
+    const comprado = suma(estado.compras, (c) => c.item === p.item && (nit === null || c.nit === nit));
+    const recibido = suma(estado.recibos, (r) => itemRecibo(estado, r) === p.item && (nit === null || reciboDelProveedor(r)));
     return { item: p.item, descripcion: p.descripcion, um: p.um, comprado, recibido,
+      ...(nit !== null && { nit, proveedor }),
       enEsteRecibo: suma(lineas, (l) => l.item === p.item), diferencia: redondear(recibido - comprado) };
   }).filter((p) => p.comprado > 0 || p.recibido > 0);
 }
 
-export function aplicarReciboCiego(estado, lineas) {
+export function aplicarReciboCiego(estado, lineas, nit) {
   const nuevo = structuredClone(estado);
+  const proveedor = nuevo.compras.find((c) => c.nit === nit && c.cantidad > 0);
+  if (!proveedor) fallar("Seleccione un proveedor con compras vigentes para esta entrega.");
   const recibos = [];
   for (const l of lineas) {
     if (!nuevo.base.items.some((p) => p.item === l.item)
-      || !nuevo.compras.some((c) => c.item === l.item && c.cantidad > 0)) fallar("Seleccione un producto disponible para recibir.");
-    if (l.nit && !nuevo.compras.some((c) => c.item === l.item && c.nit === l.nit && c.cantidad > 0)) {
-      fallar("A ese proveedor no se le compró este producto para esta entrega.");
-    }
+      || !nuevo.compras.some((c) => c.item === l.item && c.nit === nit && c.cantidad > 0)) fallar("Seleccione un producto disponible para recibir de este proveedor.");
     if (nuevo.recibos.some((r) => r.id === l.solicitud)) fallar("El recibo ya fue registrado. Recargue la operación.", 409);
-    const recibo = { id: l.solicitud, item: l.item, cantidad: l.cantidad, ...(l.nit && { nit: l.nit }) };
+    const recibo = { id: l.solicitud, item: l.item, cantidad: l.cantidad, nit, proveedor: proveedor.proveedor };
     nuevo.recibos.push(recibo);
     recibos.push(recibo);
   }
-  const conProveedor = recibos.every((r) => r.nit);
   return { estado: nuevo, evento: { antes: null, despues: recibos, alertas: alertasEstado(nuevo),
-    resumen: resumenRecibo(nuevo, recibos),
-    motivo: conProveedor ? "Recibo a ciegas por producto y proveedor." : "Recibo a ciegas por producto, sin asignación a proveedor." } };
+    nit, proveedor: proveedor.proveedor, resumen: resumenRecibo(nuevo, recibos, nit),
+    motivo: `Recibo a ciegas del proveedor ${proveedor.proveedor} (NIT ${nit}).` } };
+}
+
+export function reporteDespacho(estado, bodega = null, lineas = []) {
+  const totales = new Map(estado.base.items.map((p) => [p.item, {
+    comprado: suma(estado.compras, (c) => c.item === p.item),
+    recibido: suma(estado.recibos, (r) => itemRecibo(estado, r) === p.item),
+    despachadoTotal: suma(estado.despachos, (d) => d.item === p.item),
+  }]));
+  return estado.base.sedes.filter((s) => bodega === null || s.codigo === bodega).flatMap((s) =>
+    estado.base.items.filter((p) => Object.hasOwn(p.sedes, s.codigo)).map((p) => {
+      const { comprado, recibido, despachadoTotal } = totales.get(p.item);
+      const despachadoSede = suma(estado.despachos, (d) => d.item === p.item && d.bodega === s.codigo);
+      return { item: p.item, descripcion: p.descripcion, um: p.um, bodega: s.codigo, sede: s.nombre,
+        pedido: p.sedes[s.codigo], comprado, recibido, despachadoTotal, despachadoSede,
+        enEsteDespacho: suma(lineas, (l) => l.item === p.item && l.bodega === s.codigo),
+        disponible: redondear(recibido - despachadoTotal),
+        diferenciaSede: redondear(despachadoSede - p.sedes[s.codigo]),
+        diferenciaReciboCompra: redondear(recibido - comprado) };
+    }));
+}
+
+export function aplicarDespachos(estado, accion) {
+  const nuevo = structuredClone(estado);
+  if (!nuevo.base.sedes.some((s) => s.codigo === accion.bodega)) fallar("Seleccione una sede válida.");
+  const filas = [];
+  for (const l of accion.lineas) {
+    const producto = nuevo.base.items.find((p) => p.item === l.item);
+    if (!producto || !Object.hasOwn(producto.sedes, accion.bodega)) fallar("La sede no pidió este producto.");
+    if (nuevo.despachos.some((d) => d.id === l.solicitud)) fallar("El despacho ya fue registrado. Recargue la operación.", 409);
+    const fila = { id: l.solicitud, item: l.item, bodega: accion.bodega, cantidad: l.cantidad, siesaEstado: "pendiente_conector" };
+    nuevo.despachos.push(fila);
+    filas.push(fila);
+  }
+  const alertas = alertasEstado(nuevo);
+  const relevantes = alertas.filter((a) => filas.some((f) => f.item === a.item)
+    && (["DESPACHO_SIN_EXISTENCIAS", "DESPACHO_COMPRA_RECIBO_DIFERENTE"].includes(a.codigo)
+      || (a.codigo === "DESPACHO_DIFERENTE" && a.bodega === accion.bodega)));
+  if (relevantes.length && !accion.motivo) fallar("Hay diferencias entre pedido, compra, recibo o despacho. Ingrese un motivo para continuar.");
+  return { estado: nuevo, evento: { antes: null, despues: filas, alertas, motivo: accion.motivo || null,
+    reporteDespacho: reporteDespacho(nuevo, accion.bodega, filas), siesaEstado: "pendiente_conector" } };
 }
 
 export function alertasEstado(estado) {
@@ -146,9 +205,11 @@ export function alertasEstado(estado) {
       alertas.push(aviso("RECIBO_PRODUCTO_DIFERENTE", p.item, comprado, recibido));
     }
     const despachado = suma(estado.despachos, (d) => d.item === p.item);
-    if (p.acopioDisponible == null && despachado > 0) alertas.push({ codigo: "EXISTENCIA_DESCONOCIDA", item: p.item });
-    else if (p.acopioDisponible != null && despachado > redondear(p.acopioDisponible + recibido)) {
-      alertas.push(aviso("DESPACHO_SIN_EXISTENCIAS", p.item, redondear(p.acopioDisponible + recibido), despachado));
+    if (despachado > recibido + 0.0005) {
+      alertas.push(aviso("DESPACHO_SIN_EXISTENCIAS", p.item, recibido, despachado));
+    }
+    if (despachado > 0 && diferente(recibido, comprado)) {
+      alertas.push(aviso("DESPACHO_COMPRA_RECIBO_DIFERENTE", p.item, comprado, recibido));
     }
     for (const [bodega, cantidad] of Object.entries(p.sedes)) {
       const enviado = suma(estado.despachos, (d) => d.item === p.item && d.bodega === bodega);
@@ -198,7 +259,7 @@ export function aplicarAccion(estado, accion, proveedor = null, compraEnLote = f
     item = producto.item;
     despues = { id: accion.solicitud, item, nit: proveedor.datos.nit,
       proveedor: proveedor.datos.nombre_comercial || proveedor.datos.razon_social,
-      cantidad: accion.cantidad, costo: accion.costo };
+      cantidad: accion.cantidad, costo: accion.costo, motivo: accion.motivo || null };
     nuevo.compras.push(despues);
   } else if (accion.tipo === "recibo") {
     const compra = nuevo.compras.find((c) => c.id === accion.compraId);
@@ -209,7 +270,7 @@ export function aplicarAccion(estado, accion, proveedor = null, compraEnLote = f
   } else if (accion.tipo === "despacho") {
     if (!producto || !Object.hasOwn(producto.sedes, accion.bodega)) fallar("La sede no pidió este producto.");
     item = producto.item;
-    despues = { id: accion.solicitud, item, bodega: accion.bodega, cantidad: accion.cantidad };
+    despues = { id: accion.solicitud, item, bodega: accion.bodega, cantidad: accion.cantidad, siesaEstado: "pendiente_conector" };
     nuevo.despachos.push(despues);
   } else if (["ajuste", "costo"].includes(accion.tipo)) {
     const coleccion = accion.tipo === "costo" ? "compras" : accion.coleccion;
@@ -227,11 +288,14 @@ export function aplicarAccion(estado, accion, proveedor = null, compraEnLote = f
     if (a.item !== item) return false;
     if (accion.tipo === "compra") return !compraEnLote && ["COMPRA_DIFERENTE", "REFERENCIA_SIN_INVENTARIO"].includes(a.codigo);
     if (accion.tipo === "recibo") return a.codigo === "RECIBO_DIFERENTE" && a.compraId === accion.compraId;
-    if (accion.tipo === "despacho") return ["DESPACHO_SIN_EXISTENCIAS", "EXISTENCIA_DESCONOCIDA"].includes(a.codigo)
+    if (accion.tipo === "despacho") return ["DESPACHO_SIN_EXISTENCIAS", "DESPACHO_COMPRA_RECIBO_DIFERENTE"].includes(a.codigo)
       || (a.codigo === "DESPACHO_DIFERENTE" && a.bodega === accion.bodega);
     return false;
   });
   if (relevantes.length && !accion.motivo) fallar("Hay diferencias de cantidades o inventario. Ingrese un motivo para continuar.");
+  if (accion.tipo === "compra" && relevantes.length && !motivosCompra.has(accion.motivo)) {
+    fallar("Seleccione un motivo de compra: Stock de seguridad, Producto agotado o inventario fantasma.");
+  }
   return { estado: nuevo, evento: { antes, despues, alertas, motivo: accion.motivo || null } };
 }
 
@@ -248,6 +312,10 @@ export function aplicarCompras(estado, lineas, proveedores) {
     if (!linea.motivo && alertas.some((a) => a.item === linea.item
       && ["COMPRA_DIFERENTE", "REFERENCIA_SIN_INVENTARIO"].includes(a.codigo))) {
       fallar("Hay diferencias de cantidades o inventario. Ingrese un motivo para continuar.");
+    }
+    if (alertas.some((a) => a.item === linea.item && ["COMPRA_DIFERENTE", "REFERENCIA_SIN_INVENTARIO"].includes(a.codigo))
+      && !motivosCompra.has(linea.motivo)) {
+      fallar("Seleccione un motivo de compra: Stock de seguridad, Producto agotado o inventario fantasma.");
     }
   }
   return { estado: nuevo, evento: {
