@@ -10,11 +10,18 @@ import { tomarFoto } from "./servicio.js";
  */
 export function cronAutorizado(secreto = process.env.CRON_SECRET) {
   return (request, response, next) => {
-    if (!secreto) return response.status(503).json({ ok: false, error: "CRON_SECRET no está configurado." });
+    // Un cron que falla en silencio pierde la foto del día sin que nadie se entere: se registra todo rechazo.
+    if (!secreto) {
+      console.error("[cron] rechazado: CRON_SECRET no está configurado en este deploy.");
+      return response.status(503).json({ ok: false, error: "CRON_SECRET no está configurado." });
+    }
     const enviado = String(request.headers.authorization || "").replace(/^Bearer\s+/i, "");
     const a = Buffer.from(enviado);
     const b = Buffer.from(secreto);
-    if (a.length !== b.length || !timingSafeEqual(a, b)) return response.status(401).json({ ok: false, error: "No autorizado." });
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      console.warn(`[cron] rechazado: ${enviado ? "clave distinta a CRON_SECRET" : "sin clave"} (${request.headers["user-agent"] || "sin user-agent"}).`);
+      return response.status(401).json({ ok: false, error: "No autorizado." });
+    }
     return next();
   };
 }
