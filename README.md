@@ -17,7 +17,7 @@ Cada sección tiene su permiso (ruta del front). Quien tiene `/automatizacion-fr
 | Sugerido | Líder de sede | `/automatizacion-fruver/sugerido` | `GET /api/fruver/sugerido?entrega&dias` · `GET /api/fruver/sugerido/envio?bodega&entrega` · `POST /api/fruver/sugerido/envio` |
 | Compra | Compras | `/automatizacion-fruver/pedidos` | `GET /api/fruver/pedidos/sugerido?entrega&dias` |
 | Seguimiento | Dirección / compras | `/automatizacion-fruver/seguimiento` | `GET /api/fruver/seguimiento?desde&hasta` |
-| Asertividad | Dirección / compras | `/automatizacion-fruver/asertividad` | `GET /api/fruver/asertividad?semanas` (2–16, por defecto 8) |
+| Asertividad | Dirección / compras | `/automatizacion-fruver/asertividad` | `GET /api/fruver/asertividad?dias` (7, 14 o 28; por defecto 14) |
 | Cumplimiento | Dirección / compras | `/automatizacion-fruver/cumplimiento` (siempre `enforce`) | `GET /api/fruver/cumplimiento?desde&hasta` (por defecto, 30 días hasta ayer; máx. 92) |
 
 ## Pedido de la sede: cómo funciona
@@ -82,14 +82,20 @@ Reglas puras en `src/pedidos/reglas.js` y `sugerido.js` (probadas en `test/pedid
 
 ## Asertividad: ¿qué tan fiable es el sugerido?
 
-`src/asertividad/`. Para cada día ya vendido de las últimas N semanas y cada sede×producto, recalcula la venta esperada con la historia que existía ANTES (las mismas funciones de `pedidos/reglas.js`; el índice de quincena con datos ≤ T−2) y la compara con lo vendido. Compara tres pronósticos: **sistema** (la fórmula vigente), **sinQuincena** (sin el ajuste: dice si sigue ayudando) e **ingenuo** (lo vendido el mismo día de la semana pasada: si el sistema no le gana, no aporta).
+`src/asertividad/`. Para cada día ya vendido y cada sede×producto, recalcula la venta esperada con la historia que existía ANTES (las mismas funciones de `pedidos/reglas.js`; el índice de quincena con datos ≤ T−2) y la compara con lo vendido.
 
-- **Error** = Σ |vendido − esperado| ÷ Σ vendido; **sesgo** = Σ (esperado − vendido) ÷ Σ vendido. Ponderados en plata (unidades × precio promedio de venta del producto en el período) para sumar kilos con unidades.
-- Cuatro niveles: sede×producto×día, consolidado×día, sede×producto×semana y **consolidado×semana (la compra)**. Por semana, sede, día de la semana, fase de quincena, día y producto (con su detalle por sede).
-- Límites: mide la venta esperada, no el pedido (el inventario histórico por bodega no está en la réplica); un día de agotado subestima la demanda; es la fórmula de hoy aplicada al pasado, no lo que se mostró ese día.
-- Lee ~5 meses de ventas (8 semanas: 4–6 s). Caché en memoria por (último dato, semanas), 30 min.
-- Desde la terminal: `node --env-file=.env scripts/medir-asertividad.mjs [semanas]`.
-- Tests: `test/asertividad.test.js` (incluye que lo vendido el día anterior no cambie el pronóstico: sin fuga).
+**La pantalla** (`medirPorDia`, `GET ?dias=7|14|28`): una fila por día, todas las sedes juntas — *el sistema esperaba vender* · *se vendió* · *diferencia* · *acierto* — y al tocar un día, producto por producto (del que más plata erró al que menos).
+
+- **Acierto** = 1 − Σ |esperado − vendido| ÷ Σ vendido, producto por producto (que sobre papa no compensa que falte tomate), en plata (unidades × precio promedio de venta) para sumar kilos con unidades. Nunca menos de 0.
+- **El recálculo es lo que se mostró.** Comprobado el 20-nov-2026 contra la foto del 18-nov (entrega jue 19): 178 de 178 productos iguales, sede por sede.
+- **Día a medias** (`sedesSinDatos`): una sede que venía vendiendo y no aparece al final del período es retraso de la réplica, no cierre. Ese día se compara solo con las sedes que llegaron y la pantalla lo avisa. No cuentan una sede que abrió en el período ni un día cerrado en medio.
+- Los productos de cada día viajan solo con números; nombre y unidad van una vez en `productos` (28 días ≈ 0,6 MB en vez de 1 MB).
+- Límites: un día de agotado la venta es menor que la demanda; mide la venta esperada, no el pedido (el inventario histórico por bodega no está en la réplica).
+- Caché en memoria por (último dato, días), 30 min. 14 días: ~20 s la primera vez.
+
+**El reporte técnico** (`medirAsertividad`, solo terminal): cuatro niveles (sede×producto×día … consolidado×semana) y tres pronósticos — **sistema**, **sinQuincena** (¿el ajuste sigue ayudando?) e **ingenuo** (repetir la semana pasada: si el sistema no le gana, no aporta). `node --env-file=.env scripts/medir-asertividad.mjs [semanas]`.
+
+Tests: `test/asertividad.test.js` (incluye sin fuga: lo vendido el día anterior no cambia lo esperado).
 
 Variantes probadas y descartadas (2026-11-18, backtest de 16 semanas): índice de quincena **por sede** (solo 0,3 pts mejor que el global, con siete índices que estimar) y **corrección del error por fase** sobre la fórmula (0,6 pts peor que el índice).
 

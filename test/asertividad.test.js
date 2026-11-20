@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { desplegarConPlata } from "../src/asertividad/consultas.js";
-import { medirAsertividad, periodo } from "../src/asertividad/reglas.js";
-import { leerSemanas, manejadorAsertividad } from "../src/asertividad/rutas.js";
+import { medirAsertividad, medirPorDia, periodo, periodoDias, sedesSinDatos } from "../src/asertividad/reglas.js";
+import { leerDias, manejadorAsertividad } from "../src/asertividad/rutas.js";
 import { faseQuincena, sumarDias } from "../src/pedidos/reglas.js";
 
 const rango = (desde, n) => Array.from({ length: n }, (_, i) => sumarDias(desde, i));
@@ -102,13 +102,98 @@ describe("desplegarConPlata", () => {
   });
 });
 
-describe("leerSemanas y manejador", () => {
-  it("valida las semanas", () => {
-    assert.deepEqual(leerSemanas({}), { semanas: 8 });
-    assert.deepEqual(leerSemanas({ semanas: "12" }), { semanas: 12 });
-    assert.ok(leerSemanas({ semanas: "1" }).error);
-    assert.ok(leerSemanas({ semanas: "17" }).error);
-    assert.ok(leerSemanas({ semanas: "abc" }).error);
+describe("periodoDias", () => {
+  it("son los últimos N días que terminan en el último dato", () => {
+    const p = periodoDias("2026-11-17", 14);
+    assert.equal(p.desde, "2026-11-04");
+    assert.equal(p.hasta, "2026-11-17");
+    assert.equal(p.historiaDesde, "2026-09-09");
+  });
+});
+
+describe("medirPorDia", () => {
+  it("una venta constante: el sistema acierta 100 % todos los días", () => {
+    const ventas = plano();
+    const r = medirPorDia({ ventas, abiertas: abiertasTodas(), ventaDiaria: diaria(ventas), desde: "2026-11-11", hasta: HASTA });
+    assert.equal(r.dias.length, 7);
+    assert.equal(r.dias[0].fecha, HASTA); // el más reciente primero
+    assert.equal(r.dias[0].dia, "mar");
+    for (const d of r.dias) {
+      assert.equal(d.acierto, 1);
+      assert.equal(d.esperadoValor, 2 * 10 * 1000); // dos sedes juntas
+      assert.equal(d.vendidoValor, 2 * 10 * 1000);
+    }
+    assert.equal(r.resumen.acierto, 1);
+    assert.equal(r.resumen.dias, 7);
+    assert.ok(r.dias.every((d) => d.sedesSinDatos === 0));
+  });
+
+  it("avisa el día que llegó a medias: una sede sin venta ese día no se mide", () => {
+    const ventas = plano();
+    const abiertas = abiertasTodas();
+    abiertas.get("00301").delete(HASTA); // el último día llegó a medias
+    const r = medirPorDia({ ventas, abiertas, ventaDiaria: [], desde: sumarDias(HASTA, -2), hasta: HASTA });
+    assert.deepEqual(r.dias.map((d) => d.sedesSinDatos), [1, 0, 0]);
+    assert.equal(r.dias[0].vendidoValor, 10 * 1000);
+  });
+
+  it("una sede que abrió en el período o cerró un día en medio no es un día a medias", () => {
+    const abiertas = new Map([
+      ["A", new Set(["2026-11-03", "2026-11-04", "2026-11-05"])], // abrió el 3
+      ["B", new Set(["2026-11-01", "2026-11-03", "2026-11-04", "2026-11-05"])], // cerró el 2
+      ["C", new Set(["2026-11-01", "2026-11-02", "2026-11-03", "2026-11-04"])], // el 5 no ha llegado
+      ["D", new Set(["2026-10-01", "2026-10-02"])], // cerró antes del período
+    ]);
+    const r = sedesSinDatos(abiertas, rango("2026-11-01", 5));
+    assert.deepEqual([...r.values()], [0, 0, 0, 0, 1]);
+  });
+
+  it("una sede sin historia para pronosticar no se cuenta como día a medias", () => {
+    // PV001 abrió hace poco: tiene venta, pero no días comparables para esperar nada.
+    const recientes = new Set(rango(sumarDias(HASTA, -2), 3));
+    const ventas = plano().filter((v) => v.bodega !== "PV001" || recientes.has(v.fecha));
+    const abiertas = new Map([["00301", new Set(FECHAS)], ["PV001", recientes]]);
+    const r = medirPorDia({ ventas, abiertas, ventaDiaria: [], desde: sumarDias(HASTA, -2), hasta: HASTA });
+    assert.deepEqual(r.dias.map((d) => d.sedesSinDatos), [0, 0, 0]);
+  });
+
+  it("junta las sedes por producto, y un producto que sobra no tapa otro que falta", () => {
+    // Ítem 1 vende el doble el último día; ítem 2 la mitad.
+    const ventas = plano((f, b, it) => (f !== HASTA ? 10 : it === "1" ? 20 : 5), ["1", "2"], (it) => (it === "1" ? 1000 : 4000));
+    const r = medirPorDia({ ventas, abiertas: abiertasTodas(), ventaDiaria: [], desde: HASTA, hasta: HASTA });
+    const [d] = r.dias;
+    // El precio es el promedio del período: ítem 1 y 2 a su precio fijo.
+    // esperado: 2 sedes × (10×1000 + 10×4000) = 100.000; vendido: 2 × (20×1000 + 5×4000) = 80.000
+    assert.equal(d.esperadoValor, 100_000);
+    assert.equal(d.vendidoValor, 80_000);
+    // error: ítem 1 → 2×10×1000 = 20.000; ítem 2 → 2×5×4000 = 40.000 → 1 − 60.000/80.000
+    assert.equal(d.acierto, 0.25);
+    assert.equal(d.sesgo, 0.25); // esperaba de más
+    assert.deepEqual(d.productos.map((p) => p.item), ["2", "1"]); // el que más plata erró primero
+    const p2 = d.productos[0];
+    assert.equal(p2.esperado, 20); // las dos sedes juntas
+    assert.equal(p2.vendido, 10);
+    assert.equal(p2.acierto, 0); // esperaba el doble: nunca negativo
+    assert.equal(p2.descripcion, undefined); // el nombre va una sola vez, en `productos`
+    assert.equal(r.productos[0].item, "2");
+    assert.equal(r.productos[0].descripcion, "P2");
+  });
+
+  it("sin fuga: lo vendido el día anterior no cambia lo esperado del día medido", () => {
+    const base = plano((f) => (faseQuincena(f) <= 2 ? 13 : 10));
+    const conPico = base.map((v) => (v.fecha === sumarDias(HASTA, -1) ? { ...v, unidades: 500, ventas: 500_000 } : v));
+    const medir = (ventas) => medirPorDia({ ventas, abiertas: abiertasTodas(), ventaDiaria: diaria(ventas), desde: HASTA, hasta: HASTA });
+    assert.equal(medir(conPico).dias[0].esperadoValor, medir(base).dias[0].esperadoValor);
+  });
+});
+
+describe("leerDias y manejador", () => {
+  it("valida los días", () => {
+    assert.deepEqual(leerDias({}), { dias: 14 });
+    assert.deepEqual(leerDias({ dias: "7" }), { dias: 7 });
+    assert.deepEqual(leerDias({ dias: "28" }), { dias: 28 });
+    assert.ok(leerDias({ dias: "10" }).error);
+    assert.ok(leerDias({ dias: "abc" }).error);
   });
 
   const respuesta = () => {
@@ -118,17 +203,17 @@ describe("leerSemanas y manejador", () => {
     return r;
   };
 
-  it("400 con semanas inválidas, sin tocar la base", async () => {
+  it("400 con días inválidos, sin tocar la base", async () => {
     let llamado = false;
     const r = respuesta();
-    await manejadorAsertividad({ pool: {}, calcular: async () => { llamado = true; } })({ query: { semanas: "0" } }, r);
+    await manejadorAsertividad({ pool: {}, calcular: async () => { llamado = true; } })({ query: { dias: "0" } }, r);
     assert.equal(r.estado, 400);
     assert.equal(llamado, false);
   });
 
   it("responde lo calculado", async () => {
     const r = respuesta();
-    await manejadorAsertividad({ pool: {}, calcular: async ({ semanas }) => ({ semanas }) })({ query: { semanas: "4" } }, r);
-    assert.deepEqual(r.cuerpo, { ok: true, data: { semanas: 4 } });
+    await manejadorAsertividad({ pool: {}, calcular: async ({ dias }) => ({ dias }) })({ query: { dias: "7" } }, r);
+    assert.deepEqual(r.cuerpo, { ok: true, data: { dias: 7 } });
   });
 });

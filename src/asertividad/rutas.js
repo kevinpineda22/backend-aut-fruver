@@ -1,20 +1,18 @@
 import { respuestaError } from "../http.js";
-import { SEMANAS_DEFECTO, SEMANAS_MAX, SEMANAS_MIN } from "./reglas.js";
+import { DIAS_DEFECTO, DIAS_OPCIONES } from "./reglas.js";
 import { calcularAsertividad } from "./servicio.js";
 
-/** Lee `semanas`. Si no sirve, devuelve el mensaje de error. */
-export function leerSemanas(query) {
-  const semanas = query.semanas == null || query.semanas === "" ? SEMANAS_DEFECTO : Number(query.semanas);
-  if (!Number.isInteger(semanas) || semanas < SEMANAS_MIN || semanas > SEMANAS_MAX) {
-    return { error: `Las semanas a medir van de ${SEMANAS_MIN} a ${SEMANAS_MAX}.` };
-  }
-  return { semanas };
+/** Lee `dias` (7, 14 o 28). Si no sirve, devuelve el mensaje de error. */
+export function leerDias(query) {
+  const dias = query.dias == null || query.dias === "" ? DIAS_DEFECTO : Number(query.dias);
+  if (!DIAS_OPCIONES.includes(dias)) return { error: `Los días a medir son ${DIAS_OPCIONES.join(", ")}.` };
+  return { dias };
 }
 
-/** `GET ?semanas` → cuánto se equivocó la venta esperada contra lo vendido. */
+/** `GET ?dias` → día por día, lo que el sistema esperaba vender contra lo que se vendió. */
 export function manejadorAsertividad({ pool, calcular = calcularAsertividad }) {
   return async (request, response) => {
-    const parametros = leerSemanas(request.query);
+    const parametros = leerDias(request.query);
     if (parametros.error) return response.status(400).json({ ok: false, error: parametros.error });
     try {
       const data = await calcular({ pool, ...parametros });

@@ -74,17 +74,19 @@ Cómo se mide:
 
 ### 2.4 Asertividad
 
-¿Qué tan fiable es el sugerido? Para cada día ya vendido, el sistema recalcula cuánto esperaba vender cada sede de cada producto (con las ventas que había antes de ese día) y lo compara con lo que se vendió.
+¿Qué tan fiable es el sugerido? Día por día, todas las sedes juntas: lo que el sistema esperaba vender contra lo que se vendió. Rediseñada el 20-nov-2026 (antes tenía gráficos y cuatro niveles que no se entendían).
 
-Filtro: últimas 4, 8, 12 o 16 semanas.
+Filtro: última semana, 2 semanas (por defecto) o 4 semanas.
 
-- **Resumen:** error de la compra (todas las sedes, por producto y semana), error por tienda y día, cuántos puntos le gana a «repetir la semana pasada» y cuánto ayuda el ajuste de quincena. El sesgo dice si espera de más o de menos.
-- **Semana a semana:** gráfico y tabla. Si la línea del sistema sube y se queda arriba, algo cambió en la venta.
-- **Según para qué se use:** el mismo pronóstico en cuatro niveles; se equivoca menos cuanto más se agrega.
-- **Día a día:** si esperaba de más o de menos, con la fase de la quincena de cada día.
-- **Por sede, por día de la semana y por producto** (al tocar un producto, cómo le va en cada sede).
+- **Arriba, tres números:** el acierto del período («de cada $100 vendidos, el sistema previó bien $X»), si espera vender de más o de menos, y el producto que más falla (el de más plata errada entre los que aciertan menos de 80 %).
+- **Día por día:** día · el sistema esperaba vender · se vendió · diferencia · acierto. Al tocar un día, producto por producto, del que más falló al que menos (10 primero; «Ver todos» para el resto).
+- **Dónde se equivoca más plata:** los 10 productos del período con más plata errada.
+- Acierto en verde desde 80 %, ámbar desde 70 %, rojo debajo.
+- Si la venta de alguna sede todavía no llegó (suele pasar con el último día), el día dice «Faltan datos de N sedes» y se compara solo con las que llegaron.
 
-Límites que la pantalla dice: mide la venta esperada, no el pedido; un día de agotado la venta es menor que la demanda; es la fórmula de hoy aplicada a días pasados.
+Cada día se recalcula con la fórmula del sugerido y solo con lo que había antes de ese día: **da lo mismo que se mostró** (comprobado contra la foto guardada del 18-nov: 178 de 178 productos iguales). Límite: un día de agotado la venta es menor que la demanda.
+
+Medido el 20-nov-2026 (réplica hasta el 19): acierto **77 %** en 2 semanas (esperó 5 % de más), **73 %** en 4 semanas (6 % de menos). Los jueves aciertan menos (65–77 %): venden 2–3× más y varían más.
 
 ### 2.5 Cumplimiento de proveedores (nivel de servicio de entrega)
 

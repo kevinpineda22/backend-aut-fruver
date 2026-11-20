@@ -8,7 +8,13 @@
    hasta T − RETRASO_DATOS, que es lo que tiene la réplica cuando se calcula el
    sugerido de ese día.
 
-   Tres pronósticos lado a lado:
+   Dos salidas:
+     medirPorDia      — la pantalla: por día, todas las sedes juntas, esperado
+                        contra vendido y el acierto (1 − error), por producto.
+     medirAsertividad — el reporte técnico de la terminal: cuatro niveles y
+                        tres pronósticos.
+
+   Tres pronósticos lado a lado (solo el reporte técnico; la pantalla usa `sistema`):
      sistema      — la fórmula vigente (con quincena si AJUSTE_QUINCENA)
      sinQuincena  — la fórmula sin el ajuste: dice si el ajuste sigue ayudando
      ingenuo      — lo que se vendió el mismo día de la semana pasada: si el
@@ -24,7 +30,9 @@
        no está en la réplica.
      - Un día de agotado la venta es menor que la demanda: el error real de los
        productos que se agotan es algo mayor.
-     - Es la fórmula de HOY aplicada al pasado, no lo que se mostró ese día.
+     - Es la fórmula de HOY aplicada al pasado. Mientras la fórmula no cambie,
+       da lo mismo que se mostró: comprobado el 20-nov-2026 contra la foto del
+       18-nov (fruver_sugerido_fotos), 178 de 178 productos iguales.
    ============================================================================= */
 
 import {
@@ -117,6 +125,140 @@ const total = (obs) => { const a = acumulador(); for (const o of obs) a.sumar(o)
  * @param {(codigo:string)=>string} [p.nombreSede]
  */
 export function medirAsertividad({ ventas, abiertas, ventaDiaria, desde, hasta, um = new Map(), nombreSede = (c) => c }) {
+  const { obs, info, fechas } = observar({ ventas, abiertas, ventaDiaria, desde, hasta });
+  return resumirCompleto({ obs, info, fechas, desde, um, nombreSede });
+}
+
+/** Días que se pueden pedir en la pantalla. */
+export const DIAS_OPCIONES = [7, 14, 28];
+export const DIAS_DEFECTO = 14;
+
+/** Los últimos `dias` días que terminan en el último dato, con lo que hay que leer antes. */
+export function periodoDias(ultimoDato, dias) {
+  const desde = sumarDias(ultimoDato, -dias + 1);
+  return {
+    desde,
+    hasta: ultimoDato,
+    historiaDesde: sumarDias(desde, -56),
+    entrenoDesde: sumarDias(desde, -RETRASO_DATOS - DIAS_ENTRENO_QUINCENA + 1),
+  };
+}
+
+/** 0–1. Cuánto acertó: 1 − |esperado − vendido| ÷ vendido, nunca menos de 0. */
+const acierto = (errorValor, vendidoValor) => (vendidoValor > 0 ? Math.max(0, 1 - errorValor / vendidoValor) : null);
+
+/**
+ * La tabla de la pantalla: por DÍA, todas las sedes juntas (lo que se compra),
+ * lo que el sistema esperaba vender contra lo que se vendió, y por producto.
+ *
+ * El error de un día se suma producto por producto (en plata): que la papa
+ * sobre no compensa que el tomate falte.
+ */
+export function medirPorDia({ ventas, abiertas, ventaDiaria, desde, hasta, um = new Map() }) {
+  const { obs, info } = observar({ ventas, abiertas, ventaDiaria, desde, hasta });
+  // Todas las sedes juntas: producto × día.
+  const celdas = new Map();
+  for (const o of obs) {
+    const k = `${o.T}|${o.item}`;
+    const c = celdas.get(k) || { fecha: o.T, item: o.item, p: o.p, esperado: 0, vendido: 0 };
+    c.esperado += o.F.sistema;
+    c.vendido += o.A;
+    celdas.set(k, c);
+  }
+  const vacio = () => ({ esperadoValor: 0, vendidoValor: 0, errorValor: 0, sesgoValor: 0 });
+  const sumar = (m, c) => {
+    m.esperadoValor += c.esperado * c.p;
+    m.vendidoValor += c.vendido * c.p;
+    m.errorValor += Math.abs(c.esperado - c.vendido) * c.p;
+    m.sesgoValor += (c.esperado - c.vendido) * c.p;
+  };
+  const cerrar = (m) => ({
+    esperadoValor: Math.round(m.esperadoValor),
+    vendidoValor: Math.round(m.vendidoValor),
+    acierto: redondear(acierto(m.errorValor, m.vendidoValor)),
+    // + = esperaba vender de más; − = de menos.
+    sesgo: m.vendidoValor > 0 ? redondear(m.sesgoValor / m.vendidoValor) : null,
+  });
+
+  const total = vacio();
+  const dias = new Map();
+  const productos = new Map();
+  for (const c of celdas.values()) {
+    sumar(total, c);
+    const d = dias.get(c.fecha) || { m: vacio(), filas: [] };
+    sumar(d.m, c);
+    d.filas.push(c);
+    dias.set(c.fecha, d);
+    const pr = productos.get(c.item) || { m: vacio(), esperado: 0, vendido: 0 };
+    sumar(pr.m, c);
+    pr.esperado += c.esperado;
+    pr.vendido += c.vendido;
+    productos.set(c.item, pr);
+  }
+
+  const fila = (item, esperado, vendido, m) => ({
+    item,
+    descripcion: info.get(item)?.descripcion || item,
+    um: um.get(item) || null,
+    esperado: redondear(esperado, 1),
+    vendido: redondear(vendido, 1),
+    ...cerrar(m),
+    errorValor: Math.round(m.errorValor),
+  });
+
+  const sinDatos = sedesSinDatos(abiertas, [...dias.keys()]);
+  return {
+    resumen: { ...cerrar(total), errorValor: Math.round(total.errorValor), dias: dias.size },
+    dias: [...dias.keys()].sort().reverse().map((fecha) => {
+      const d = dias.get(fecha);
+      return {
+        fecha,
+        dia: DIAS[diaSemana(fecha)],
+        sedesSinDatos: sinDatos.get(fecha) || 0,
+        ...cerrar(d.m),
+        // Solo números: el nombre y la unidad están en `productos` (no repetirlos 28 veces).
+        productos: d.filas
+          .map((c) => {
+            const errorValor = Math.abs(c.esperado - c.vendido) * c.p;
+            return {
+              item: c.item,
+              esperado: redondear(c.esperado, 1),
+              vendido: redondear(c.vendido, 1),
+              acierto: redondear(acierto(errorValor, c.vendido * c.p)),
+              errorValor: Math.round(errorValor),
+            };
+          })
+          .sort((a, b) => b.errorValor - a.errorValor),
+      };
+    }),
+    // Dónde más se equivoca en el período: más plata errada primero.
+    productos: [...productos]
+      .map(([item, pr]) => fila(item, pr.esperado, pr.vendido, pr.m))
+      .sort((a, b) => b.errorValor - a.errorValor),
+  };
+}
+
+/**
+ * Sedes cuya venta todavía no llegó a la réplica, por día. El último día suele
+ * llegar a medias: una sede que venía vendiendo y desaparece al FINAL del
+ * período no cerró, es que su venta no ha llegado. Ese día compara menos sedes
+ * y la pantalla lo avisa.
+ *
+ * No cuentan: una sede que abrió después (no venía vendiendo) ni un día cerrado
+ * en medio del período (después volvió a vender).
+ */
+export function sedesSinDatos(abiertas, fechas) {
+  // Una sede que dejó de vender una semana antes del período cerró: no es un retraso.
+  const desde = sumarDias([...fechas].sort()[0], -7);
+  const tramos = [...abiertas.values()].map((s) => {
+    const dias = [...s].sort();
+    return { primero: dias[0], ultimo: dias.at(-1) };
+  }).filter((t) => t.primero && t.ultimo >= desde);
+  return new Map(fechas.map((f) => [f, tramos.filter((t) => t.primero < f && t.ultimo < f).length]));
+}
+
+/** Observaciones sede × producto × día: lo vendido (A) y lo esperado por cada modelo (F). */
+function observar({ ventas, abiertas, ventaDiaria, desde, hasta }) {
   const hist = new Map();
   const info = new Map();
   for (const v of ventas) {
@@ -166,7 +308,11 @@ export function medirAsertividad({ ventas, abiertas, ventaDiaria, desde, hasta, 
       obs.push({ sede, item, T, A, p, F: { sistema, sinQuincena, ingenuo } });
     }
   }
+  return { obs, info, fechas };
+}
 
+/** El reporte completo (cuatro niveles, tres modelos): lo usa el script de terminal. */
+function resumirCompleto({ obs, info, fechas, desde, um, nombreSede }) {
   const semana = (T) => Math.floor((Date.parse(`${T}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / (7 * 86_400_000));
   const sedes = [...new Set(obs.map((o) => o.sede))];
 
